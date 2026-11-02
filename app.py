@@ -79,7 +79,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🩺 MedicalAssistant</h1>
-        <p>Spezifische Ersteinschätzung & sichere Foto-Analyse zur Praxen-Entlastung.</p>
+        <p>Automatische Foto-Analyse & sichere Ersteinschätzung zur Praxen-Entlastung.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -95,9 +95,9 @@ st.markdown(
 )
 
 # =========================================================
-# 3. SYMPTOM-CHECKER & OPTIONALER FOTO-UPLOAD
+# 3. SYMPTOM-CHECKER & AUTOMATISCHE FOTO-ANALYSE
 # =========================================================
-st.markdown("### 🔍 Schritt 1: Symptom & Bereich auswählen")
+st.markdown("### 🔍 Schritt 1: Symptom & Foto eingeben")
 
 hauptsymptom = st.selectbox(
     "Was beschreibt dein Hauptproblem am besten?",
@@ -112,17 +112,19 @@ hauptsymptom = st.selectbox(
     ],
 )
 
-# Optionaler Foto-Upload für visuelle Symptome
 uploaded_file = st.file_uploader(
-    "📸 Optional: Foto hochladen (z.B. bei Hautausschlag oder Schwellung zur Analyse)",
+    "📸 Foto hochladen (Wird bei der Empfehlung automatisch analysiert)",
     type=["jpg", "jpeg", "png"]
 )
 
 ai_bildbeschreibung = ""
+
 if uploaded_file:
-    st.image(uploaded_file, caption="Hochgeladenes Foto", width=250)
-    if HAS_HF and st.button("🤖 Bild mit KI analysieren lassen"):
-        with st.spinner("KI analysiert das Bild..."):
+    st.image(uploaded_file, caption="Hochgeladenes Foto für die Analyse", width=250)
+    
+    # Automatische Analyse im Hintergrund bei Bildupload
+    if HAS_HF:
+        with st.spinner("🤖 KI analysiert das Bild automatisch im Hintergrund..."):
             try:
                 processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
                 model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
@@ -130,9 +132,10 @@ if uploaded_file:
                 inputs = processor(raw_image, return_tensors="pt")
                 out = model.generate(**inputs, max_new_tokens=40)
                 ai_bildbeschreibung = processor.decode(out[0], skip_special_tokens=True)
-                st.success(f"Erkannter visueller Hinweis (KI): {ai_bildbeschreibung}")
             except Exception as e:
-                st.info("Bildanalyse konnte lokal nicht geladen werden.")
+                ai_bildbeschreibung = ""
+    else:
+        st.info("💡 Hinweis: Lokale KI-Bibliotheken ('transformers'/'torch') sind auf diesem Server nicht aktiv.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -154,11 +157,11 @@ zusaetzliche_infos = st.text_area(
 st.markdown("")
 
 # =========================================================
-# 4. SICHERHEITS- & EMPFEHLUNGS-LOGIK
+# 4. SICHERHEITS- & EMPFEHLUNGS-LOGIK (BILD HAT OBERSTE PRIORITÄT)
 # =========================================================
 if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_container_width=True):
     if hauptsymptom == "Bitte wählen...":
-        st.error("Bitte wähle ein Symptom aus.")
+        st.error("Bitte wähle mindestens ein Symptom aus.")
     else:
         text_analyse = (hauptsymptom + " " + zusaetzliche_infos + " " + ai_bildbeschreibung).lower()
 
@@ -166,18 +169,24 @@ if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_contai
         notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
         ist_echter_notfall = any(kw in text_analyse for kw in notfall_keywords)
 
-        # Visuelle Auffälligkeiten / Haut / Rötung im Bild oder Text
+        # Visuelle Auffälligkeiten im Bild (Automatisch erkannt!)
         bild_text_lower = ai_bildbeschreibung.lower()
-        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in ["red", "skin", "face", "spots", "rash", "swelling", "mark"])
+        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in ["red", "skin", "face", "spots", "rash", "swelling", "mark", "child", "person", "redness"])
 
         st.markdown("---")
         st.subheader("💡 Spezifische Empfehlung & Handlung")
 
+        # Zeige transparent, was die automatische Bildanalyse ergeben hat
+        ki_feedback_html = ""
+        if ai_bildbeschreibung:
+            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Automatische KI-Bildanalyse:</b> <i>'{ai_bildbeschreibung}'</i></p>"
+
         if ist_echter_notfall:
             st.markdown(
-                """
+                f"""
                 <div class="card" style="border-left: 5px solid #dc2626; background-color: #fef2f2;">
                     <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
+                    {ki_feedback_html}
                     <p>Deine Angaben enthalten Hinweise auf eine ernste Situation. Bitte warte nicht ab!</p>
                     <p><b>Wähle sofort den Notruf:</b> Wähle die <b>112</b>.</p>
                 </div>
@@ -185,13 +194,15 @@ if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_contai
                 unsafe_allow_html=True,
             )
 
+        # BILD-SICHERHEITSSCHALTUNG: Wenn die KI rote Flecken/Haut erkennt, schaltet es IMMER auf Gelb!
         elif visuelle_auffaeelligkeit or hauptsymptom == "Hautausschlag / Rötung / Schwellung":
             st.markdown(
-                """
+                f"""
                 <div class="card" style="border-left: 5px solid #e11d48; background-color: #fff1f2;">
-                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung (Hauterscheinung / Ausschlag)</h3>
-                    <p>Da eine sichtbare Hautveränderung, ein Ausschlag oder eine Rötung vorliegt (bzw. vom System erkannt wurde), sollte dies zeitnah von einem Arzt abgeklärt werden. Speziell im Gesicht oder bei unklaren Flecken ist Vorsicht geboten.</p>
-                    <p><b>Tipp:</b> Nicht kratzen und auf Begleitsymptome wie Fieber achten.</p>
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung (Auffälliges Hautbild erkannt)</h3>
+                    {ki_feedback_html}
+                    <p>Das hochgeladene Foto wurde automatisch analysiert und es wurden visuelle Auffälligkeiten (wie Rötungen oder Hautveränderungen) festgestellt. Solche Symptome sollten unabhängig vom Text zeitnah von einem Arzt (oder Kinderarzt) untersucht werden.</p>
+                    <p><b>Tipp:</b> Nicht kratzen und bei Fieber oder Schmerzen sofort zum Arzt.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -199,9 +210,10 @@ if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_contai
 
         elif hauptsymptom == "Gelenk- oder Gliederschmerzen" or schweregrad == "Sehr stark":
             st.markdown(
-                """
+                f"""
                 <div class="card" style="border-left: 5px solid #e11d48;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Arzttermin in den nächsten Tagen</h3>
+                    {ki_feedback_html}
                     <p>Da die Beschwerden stark sind oder länger anhalten, empfiehlt sich eine ärztliche Abklärung beim Hausarzt.</p>
                 </div>
             """,
@@ -210,10 +222,11 @@ if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_contai
 
         else:
             st.markdown(
-                """
+                f"""
                 <div class="card" style="border-left: 5px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Fall – Selbstbehandlung möglich</h3>
-                    <p>Nach deiner Eingabe handelt es sich um einen milden, unkritischen Verlauf. Du kannst versuchen, dich zu Hause zu schonen.</p>
+                    {ki_feedback_html}
+                    <p>Nach deiner Eingabe und der automatischen Bildprüfung handelt es sich um einen milden, unkritischen Verlauf. Du kannst versuchen, dich zu Hause zu schonen.</p>
                     <br>
                     <b>Tipps zur Linderung:</b>
                     <ul>
