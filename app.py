@@ -13,7 +13,7 @@ except ImportError:
 # 1. STREAMLIT CONFIG & DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – Erweiterte Vordiagnose",
+    page_title="MedicalAssistant – Sichere Vordiagnose",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -78,8 +78,8 @@ st.markdown(
 st.markdown(
     """
     <div class="hero-banner">
-        <h1>🩺 MedicalAssistant (KI-gestützt)</h1>
-        <p>Spezifische Ersteinschätzung & optionale Foto-Analyse zur Praxen-Entlastung.</p>
+        <h1>🩺 MedicalAssistant</h1>
+        <p>Spezifische Ersteinschätzung & sichere Foto-Analyse zur Praxen-Entlastung.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -108,6 +108,7 @@ hauptsymptom = st.selectbox(
         "Gelenk- oder Gliederschmerzen",
         "Magen-Darm-Beschwerden",
         "Hautausschlag / Rötung / Schwellung",
+        "Sonstiges / Allgemeine Beschwerden",
     ],
 )
 
@@ -126,9 +127,9 @@ if uploaded_file:
                 inputs = processor(raw_image, return_tensors="pt")
                 out = model.generate(**inputs, max_new_tokens=40)
                 ai_bildbeschreibung = processor.decode(out[0], skip_special_tokens=True)
-                st.success(f"Erkannter visueller Hinweis (Englisch/KI): {ai_bildbeschreibung}")
+                st.success(f"Erkannter visueller Hinweis (KI): {ai_bildbeschreibung}")
             except Exception as e:
-                st.info("Bildanalyse konnte lokal nicht geladen werden (wird für die Empfehlung ignoriert).")
+                st.info("Bildanalyse konnte lokal nicht geladen werden.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -136,66 +137,66 @@ with col1:
 with col2:
     schweregrad = st.selectbox("Wie stark sind die Beschwerden?", ["Leicht", "Mäßig", "Sehr stark"])
 
+zusaetzliche_infos = st.text_area(
+    "Zusätzliche Infos / Beschreibung (optional):",
+    placeholder="z.B. Seit heute Morgen rote Flecken im Gesicht...",
+)
+
 st.markdown("")
 
 # =========================================================
-# 4. SPEZIFISCHE RATSCHLÄGE STATT PAuschaler "TRINK WASSER"-ANTWORTEN
+# 4. SICHERHEITS- & EMPFEHLUNGS-LOGIK
 # =========================================================
 if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_container_width=True):
     if hauptsymptom == "Bitte wählen...":
         st.error("Bitte wähle ein Symptom aus.")
     else:
+        text_analyse = (hauptsymptom + " " + zusaetzliche_infos + " " + ai_bildbeschreibung).lower()
+
+        # Harte Notfall-Erkennung
+        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
+        ist_echter_notfall = any(kw in text_analyse for kw in notfall_keywords)
+
+        # Visuelle Auffälligkeiten / Haut / Rötung im Bild oder Text
+        bild_text_lower = ai_bildbeschreibung.lower()
+        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in ["red", "skin", "face", "spots", "rash", "swelling", "mark"])
+
         st.markdown("---")
-        st.subheader("💡 Spezifische Empfehlung & Vorbereitung fürs Arztgespräch")
+        st.subheader("💡 Spezifische Empfehlung & Handlung")
 
-        # Hier geben wir nun spezifische Tipps je nach gewähltem Symptom!
-        if hauptsymptom == "Gelenk- oder Gliederschmerzen":
-            titel_ampel = "🟡 Gelenk- / Gliederschmerzen im Blick behalten"
-            tipps = """
-            <ul>
-                <b>Spezifische Selbsthilfe-Tipps:</b>
-                <li>Das betroffene Gelenk vorerst schonen und nicht überlasten.</li>
-                <li>Ggf. vorsichtig kühlen (falls eine Schwellung vorliegt) oder wärmen (bei Verspannungen).</li>
-                <li><b>Wann zum Arzt?</b> Wenn die Schmerzen nach 2-3 Tagen Schonung nicht besser werden oder Fieber hinzukommt.</li>
-            </ul>
-            """
-        elif hauptsymptom == "Kopfschmerzen / Migräne":
-            titel_ampel = "🟢 Meist gut durch Ruhe lösbar"
-            tipps = """
-            <ul>
-                <b>Spezifische Selbsthilfe-Tipps:</b>
-                <li>Dunklen, ruhigen Raum aufsuchen und Reize reduzieren.</li>
-                <li>Viel Wasser trinken (oft ist Flüssigkeitsmangel ein Auslöser).</li>
-                <li>Ein feuchtes Tuch auf die Stirn legen.</li>
-            </ul>
-            """
-        elif hauptsymptom == "Hautausschlag / Rötung / Schwellung":
-            titel_ampel = "🟡 Hauterscheinung beobachten"
-            tipps = """
-            <ul>
-                <b>Spezifische Selbsthilfe-Tipps:</b>
-                <li>Die Stelle nicht kratzen, um Entzündungen zu vermeiden.</li>
-                <li>Mit einem Stift den Rand der Rötung markieren, um zu sehen, ob sie sich ausbreitet.</li>
-                <li><b>Hinweis:</b> Wenn Atemnot oder Schwindel dazukommt, sofort den Notruf wählen (allergischer Schock!).</li>
-            </ul>
-            """
+        if ist_echter_notfall:
+            st.markdown("""
+                <div class="card" style="border-left: 5px solid #dc2626; background-color: #fef2f2;">
+                    <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
+                    <p>Deine Angaben enthalten Hinweise auf eine ernste Situation. Bitte warte nicht ab!</p>
+                    <p><b>Wähle sofort den Notruf:</b> Wähle die <b>112</b>.</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+        elif visuelle_auffaeelligkeit or hauptsymptom == "Hautausschlag / Rötung / Schwellung":
+            st.markdown("""
+                <div class="card" style="border-left: 5px solid #e11d48; background-color: #fff1f2;">
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung (Hauterscheinung / Ausschlag)</h3>
+                    <p>Da eine sichtbare Hautveränderung, ein Ausschlag oder eine Rötung vorliegt (bzw. vom System erkannt wurde), sollte dies zeitnah von einem Arzt abgeklärt werden. Speziell im Gesicht oder bei unklaren Flecken ist Vorsicht geboten.</p>
+                    <p><b>Tipp:</b> Nicht kratzen und auf Begleitsymptome wie Fieber achten.</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+        elif hauptsymptom == "Gelenk- or Gliederschmerzen" or schweregrad == "Sehr stark":
+            st.markdown("""
+                <div class="card" style="border-left: 5px solid #e11d48;">
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Arzttermin in den nächsten Tagen</h3>
+                    <p>Da die Beschwerden stark sind oder länger anhalten, empfiehlt sich eine ärztliche Abklärung beim Hausarzt.</p>
+                </div>
+            """, unsafe_allow_html=True)
+
         else:
-            titel_ampel = "🟢 Milder Verlauf – Allgemeine Schonung"
-            tipps = """
-            <ul>
-                <b>Spezifische Selbsthilfe-Tipps:</b>
-                <li>Körperliche Anstrengung vermeiden und ausruhen.</li>
-                <li>Auf leicht verdauliche Kost und ausreichend Flüssigkeit achten.</li>
-            </ul>
-            """
-
-        # Karte ausgeben
-        st.markdown(f"""
-            <div class="card" style="border-left: 5px solid #0284c7;">
-                <h3 style="color: #0369a1; margin-top:0;">{titel_ampel}</h3>
-                <p>Du hast angegeben: <b>{hauptsymptom}</b> (Dauer: {dauer}, Stärke: {schweregrad}).</p>
-                {tipps}
-            </div>
-        """, unsafe_allow_html=True)
-
-        st.info("📞 **Bereitsitätsdienst:** 116 117 (kostenlos bei Fragen außerhalb der Praxiszeiten)")
+            st.markdown("""
+                <div class="card" style="border-left: 5px solid #16a34a;">
+                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Fall – Selbstbehandlung möglich</h3>
+                    <p>Nach deiner Eingabe handelt es sich um einen milden, unkritischen Verlauf. Du kannst versuchen, dich zu Hause zu schonen.</p>
+                    <br>
+                    <b>Tipps zur Linderung:</b>
+                    <ul>
+                        <li>Ausreichend trinken und körperlich ausruhen.</li>
+                        <li>
