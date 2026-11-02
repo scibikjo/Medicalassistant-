@@ -1,11 +1,19 @@
 import datetime
 import streamlit as st
+from PIL import Image
+
+# Hugging Face für Bildanalyse (optional, falls installiert)
+try:
+    from transformers import BlipForConditionalGeneration, BlipProcessor
+    HAS_HF = True
+except ImportError:
+    HAS_HF = False
 
 # =========================================================
 # 1. STREAMLIT CONFIG & DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – Sichere Vordiagnose",
+    page_title="MedicalAssistant – Erweiterte Vordiagnose",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -70,8 +78,8 @@ st.markdown(
 st.markdown(
     """
     <div class="hero-banner">
-        <h1>🩺 MedicalAssistant</h1>
-        <p>Sichere Vordiagnose & strukturierte Ersteinschätzung zur Praxen-Entlastung.</p>
+        <h1>🩺 MedicalAssistant (KI-gestützt)</h1>
+        <p>Spezifische Ersteinschätzung & optionale Foto-Analyse zur Praxen-Entlastung.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -80,16 +88,16 @@ st.markdown(
 st.markdown(
     """
     <div class="disclaimer-box">
-        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient ausschließlich der ersten Orientierung und ersetzt <b>keinesfalls</b> den Gang zum Arzt. Bei unklaren oder akuten Beschwerden kontaktiere bitte den ärztlichen Bereitsitätsdienst (116 117) oder den Notruf (112).
+        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App ersetzt <b>niemals</b> den Arzt. Sie dient zur Orientierung und Vorbereitung auf das Arztgespräch. Bei akuten Notfällen wähle sofort die 112.
     </div>
 """,
     unsafe_allow_html=True,
 )
 
 # =========================================================
-# 3. SYMPTOM-CHECKER EINGABE
+# 3. SYMPTOM-CHECKER & OPTIONALER FOTO-UPLOAD
 # =========================================================
-st.markdown("### 🔍 Schritt 1: Symptome beschreiben")
+st.markdown("### 🔍 Schritt 1: Symptom & Bereich auswählen")
 
 hauptsymptom = st.selectbox(
     "Was beschreibt dein Hauptproblem am besten?",
@@ -97,97 +105,97 @@ hauptsymptom = st.selectbox(
         "Bitte wählen...",
         "Kopfschmerzen / Migräne",
         "Erkältung / Halsschmerzen / Husten",
-        "Magen-Darm-Beschwerden",
-        "Kleine Schnittwunde / Kratzer",
         "Gelenk- oder Gliederschmerzen",
-        "Fieber (leicht bis mäßig)",
-        "Sonstiges / Allgemeine Beschwerden",
+        "Magen-Darm-Beschwerden",
+        "Hautausschlag / Rötung / Schwellung",
     ],
 )
 
+# Optionaler Foto-Upload für visuelle Symptome (z.B. Hautausschlag, Schwellung)
+uploaded_file = st.file_uploader("📸 Optional: Foto hochladen (z.B. bei Hautausschlag oder Schwellung zur Analyse)", type=["jpg", "jpeg", "png"])
+
+ai_bildbeschreibung = ""
+if uploaded_file:
+    st.image(uploaded_file, caption="Hochgeladenes Foto", width=250)
+    if HAS_HF and st.button("🤖 Bild mit KI analysieren lassen"):
+        with st.spinner("KI analysiert das Bild..."):
+            try:
+                processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+                model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+                raw_image = Image.open(uploaded_file).convert("RGB")
+                inputs = processor(raw_image, return_tensors="pt")
+                out = model.generate(**inputs, max_new_tokens=40)
+                ai_bildbeschreibung = processor.decode(out[0], skip_special_tokens=True)
+                st.success(f"Erkannter visueller Hinweis (Englisch/KI): {ai_bildbeschreibung}")
+            except Exception as e:
+                st.info("Bildanalyse konnte lokal nicht geladen werden (wird für die Empfehlung ignoriert).")
+
 col1, col2 = st.columns(2)
 with col1:
-    dauer = st.selectbox(
-        "Wie lange hast du die Beschwerden schon?",
-        [
-            "Wenige Stunden",
-            "1 bis 2 Tage",
-            "3 bis 5 Tage",
-            "Länger als eine Woche",
-        ],
-    )
-
+    dauer = st.selectbox("Wie lange hast du das schon?", ["Wenige Stunden", "1 bis 2 Tage", "3 bis 5 Tage", "Länger als eine Woche"])
 with col2:
-    schweregrad = st.selectbox(
-        "Wie stark nimmst du die Beschwerden wahr?",
-        ["Leicht / Kaum störend", "Mäßig / Spürbar", "Sehr stark / Heftig"],
-    )
-
-zusaetzliche_infos = st.text_area(
-    "Beschreibe deine Situation kurz mit eigenen Worten (optional):",
-    placeholder="z.B. Habe mich leicht am Papier geschnitten oder Kopfschmerzen seit gestern...",
-)
+    schweregrad = st.selectbox("Wie stark sind die Beschwerden?", ["Leicht", "Mäßig", "Sehr stark"])
 
 st.markdown("")
 
 # =========================================================
-# 4. INTELLIGENTE SICHERHEITS- & AMPEL-LOGIK
+# 4. SPEZIFISCHE RATSCHLÄGE STATT PAuschaler "TRINK WASSER"-ANTWORTEN
 # =========================================================
-if st.button("🚀 Vordiagnose & Empfehlung anfordern", type="primary", use_container_width=True):
+if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_container_width=True):
     if hauptsymptom == "Bitte wählen...":
-        st.error("Bitte wähle zuerst ein Hauptsymptom aus.")
+        st.error("Bitte wähle ein Symptom aus.")
     else:
-        # Text in Kleinbuchstaben umwandeln, um präzise nach Kontext zu suchen
-        text_analyse = (hauptsymptom + " " + zusaetzliche_infos).lower()
-
-        # A) HARTE NOTFALL-INDUKATOREN (Nur bei echtem Ernstfall, keinem Kratzer!)
-        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend", "sturz"]
-        ist_echter_notfall = any(kw in text_analyse for kw in notfall_keywords) and not any(bagatelle in text_analyse for bagatelle in ["kratzer", "klein", "leicht", "papier", "schon vorbei"])
-
         st.markdown("---")
-        st.subheader("💡 Ergebnis & Handlungsempfehlung")
+        st.subheader("💡 Spezifische Empfehlung & Vorbereitung fürs Arztgespräch")
 
-        if ist_echter_notfall:
-            st.markdown(
-                """
-                <div class="card" style="border-left: 5px solid #dc2626; background-color: #fef2f2;">
-                    <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
-                    <p>Deine Beschreibung enthält Hinweise auf eine ernste oder akute Situation. Bitte warte nicht ab!</p>
-                    <p><b>Wähle sofort den Notruf:</b> Wähle die <b>112</b> oder lasse dir umgehend medizinische Hilfe holen.</p>
-                </div>
-            """,
-                unsafe_allow_html=True,
-            )
-        elif schweregrad == "Sehr stark / Heftig" or dauer == "Länger als eine Woche":
-            st.markdown(
-                """
-                <div class="card" style="border-left: 5px solid #e11d48;">
-                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Arzttermin in den nächsten Tagen vereinbaren</h3>
-                    <p>Da deine Beschwerden sehr stark sind oder länger anhalten, solltest du das von einem Arzt abklären lassen. Es ist kein akuter Notfall für den Rettungsdienst, aber ein Termin beim Hausarzt ist ratsam.</p>
-                </div>
-            """,
-                unsafe_allow_html=True,
-            )
+        # Hier geben wir nun spezifische Tipps je nach gewähltem Symptom!
+        if hauptsymptom == "Gelenk- oder Gliederschmerzen":
+            titel_ampel = "🟡 Gelenk- / Gliederschmerzen im Blick behalten"
+            tipps = """
+            <ul>
+                <b>Spezifische Selbsthilfe-Tipps:</b>
+                <li>Das betroffene Gelenk vorerst schonen und nicht überlasten.</li>
+                <li>Ggf. vorsichtig kühlen (falls eine Schwellung vorliegt) oder wärmen (bei Verspannungen).</li>
+                <li><b>Wann zum Arzt?</b> Wenn die Schmerzen nach 2-3 Tagen Schonung nicht besser werden oder Fieber hinzukommt.</li>
+            </ul>
+            """
+        elif hauptsymptom == "Kopfschmerzen / Migräne":
+            titel_ampel = "🟢 Meist gut durch Ruhe lösbar"
+            tipps = """
+            <ul>
+                <b>Spezifische Selbsthilfe-Tipps:</b>
+                <li>Dunklen, ruhigen Raum aufsuchen und Reize reduzieren.</li>
+                <li>Viel Wasser trinken (oft ist Flüssigkeitsmangel ein Auslöser).</li>
+                <li>Ein feuchtes Tuch auf die Stirn legen.</li>
+            </ul>
+            """
+        elif hauptsymptom == "Hautausschlag / Rötung / Schwellung":
+            titel_ampel = "🟡 Hauterscheinung beobachten"
+            tipps = """
+            <ul>
+                <b>Spezifische Selbsthilfe-Tipps:</b>
+                <li>Die Stelle nicht kratzen, um Entzündungen zu vermeiden.</li>
+                <li>Mit einem Stift den Rand der Rötung markieren, um zu sehen, ob sie sich ausbreitet.</li>
+                <li><b>Hinweis:</b> Wenn Atemnot oder Schwindel dazukommt, sofort den Notruf wählen (allergischer Schock!).</li>
+            </ul>
+            """
         else:
-            st.markdown(
-                """
-                <div class="card" style="border-left: 5px solid #16a34a;">
-                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Fall – Selbstbehandlung möglich</h3>
-                    <p>Nach deiner Eingabe handelt es sich um einen milden, unkritischen Fall (z.B. eine kleine Verletzung oder leichte Beschwerden). Du kannst versuchen, dich zu Hause zu schonen und musst damit nicht direkt eine Praxis aufsuchen.</p>
-                    <br>
-                    <b>Tipps zur Linderung:</b>
-                    <ul>
-                        <li>Bei kleinen Wunden: Sauber halten und ggf. ein Pflaster aufkleben.</li>
-                        <li>Ausreichend trinken und körperlich etwas kürzertreten.</li>
-                    </ul>
-                </div>
-            """,
-                unsafe_allow_html=True,
-            )
+            titel_ampel = "🟢 Milder Verlauf – Allgemeine Schonung"
+            tipps = """
+            <ul>
+                <b>Spezifische Selbsthilfe-Tipps:</b>
+                <li>Körperliche Anstrengung vermeiden und ausruhen.</li>
+                <li>Auf leicht verdauliche Kost und ausreichend Flüssigkeit achten.</li>
+            </ul>
+            """
 
-        # Wichtige Kontakte
-        st.info(
-            "📞 **Hilfreiche Kontakte:**\n"
-            "- **116 117**: Ärztlicher Bereitsitätsdienst (für Abends & Wochenende)\n"
-            "- **112**: Notruf bei lebensbedrohlichen Notfällen"
-        )
+        # Karte ausgeben
+        st.markdown(f"""
+            <div class="card" style="border-left: 5px solid #0284c7;">
+                <h3 style="color: #0369a1; margin-top:0;">{titel_ampel}</h3>
+                <p>Du hast angegeben: <b>{hauptsymptom}</b> (Dauer: {dauer}, Stärke: {schweregrad}).</p>
+                {tipps}
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.info("📞 **Bereitsitätsdienst:** 116 117 (kostenlos bei Fragen außerhalb der Praxiszeiten)")
