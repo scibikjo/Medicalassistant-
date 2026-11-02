@@ -1,13 +1,11 @@
-
-
 import datetime
 import streamlit as st
 
 # =========================================================
-# 1. STREAMLIT CONFIG & DESIGN (MEDIZINISCHES UI)
+# 1. STREAMLIT CONFIG & DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – Digitale Vordiagnose & Orientierung",
+    page_title="MedicalAssistant – Sichere Vordiagnose",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -73,7 +71,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🩺 MedicalAssistant</h1>
-        <p>Erste Einschätzung deiner Symptome zur Orientierung und Entlastung von Arztpraxen.</p>
+        <p>Sichere Vordiagnose & strukturierte Ersteinschätzung zur Praxen-Entlastung.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -82,7 +80,7 @@ st.markdown(
 st.markdown(
     """
     <div class="disclaimer-box">
-        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient ausschließlich der ersten Orientierung und ersetzt <b>keinesfalls</b> den Gang zum Arzt oder eine professionelle Diagnose. Bei starken, plötzlichen oder unklaren Beschwerden kontaktiere bitte sofort den ärztlichen Bereitsitätsdienst (116 117) oder den Notruf (112).
+        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient ausschließlich der ersten Orientierung und ersetzt <b>keinesfalls</b> den Gang zum Arzt. Bei unklaren oder akuten Beschwerden kontaktiere bitte den ärztlichen Bereitsitätsdienst (116 117) oder den Notruf (112).
     </div>
 """,
     unsafe_allow_html=True,
@@ -99,17 +97,18 @@ hauptsymptom = st.selectbox(
         "Bitte wählen...",
         "Kopfschmerzen / Migräne",
         "Erkältung / Halsschmerzen / Husten",
-        "Magen-Darm-Beschwerden (Übelkeit, Bauchschmerzen)",
+        "Magen-Darm-Beschwerden",
+        "Kleine Schnittwunde / Kratzer",
         "Gelenk- oder Gliederschmerzen",
         "Fieber (leicht bis mäßig)",
-        "Sonstiges / Allgemeine Erschöpfung",
+        "Sonstiges / Allgemeine Beschwerden",
     ],
 )
 
 col1, col2 = st.columns(2)
 with col1:
     dauer = st.selectbox(
-        "Wie lange hast du die Symptome schon?",
+        "Wie lange hast du die Beschwerden schon?",
         [
             "Wenige Stunden",
             "1 bis 2 Tage",
@@ -119,36 +118,52 @@ with col1:
     )
 
 with col2:
-    fieber_ja_nein = st.radio(
-        "Hast du aktuell Fieber?",
-        ["Nein", "Ja, leichtes Fieber", "Ja, hohes Fieber (> 38.5°C)"],
+    schweregrad = st.selectbox(
+        "Wie stark nimmst du die Beschwerden wahr?",
+        ["Leicht / Kaum störend", "Mäßig / Spürbar", "Sehr stark / Heftig"],
     )
 
 zusaetzliche_infos = st.text_area(
-    "Gibt es noch etwas Wichtiges zu erwähnen? (Optional)",
-    placeholder="z.B. Schwindel, Allergien, Vorerkrankungen...",
+    "Beschreibe deine Situation kurz mit eigenen Worten (optional):",
+    placeholder="z.B. Habe mich leicht am Papier geschnitten oder Kopfschmerzen seit gestern...",
 )
 
 st.markdown("")
 
 # =========================================================
-# 4. AUSWERTUNG & AMPEL-SYSTEM
+# 4. INTELLIGENTE SICHERHEITS- & AMPEL-LOGIK
 # =========================================================
 if st.button("🚀 Vordiagnose & Empfehlung anfordern", type="primary", use_container_width=True):
     if hauptsymptom == "Bitte wählen...":
         st.error("Bitte wähle zuerst ein Hauptsymptom aus.")
     else:
+        # Text in Kleinbuchstaben umwandeln, um präzise nach Kontext zu suchen
+        text_analyse = (hauptsymptom + " " + zusaetzliche_infos).lower()
+
+        # A) HARTE NOTFALL-INDUKATOREN (Nur bei echtem Ernstfall, keinem Kratzer!)
+        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend", "sturz"]
+        ist_echter_notfall = any(kw in text_analyse for kw in notfall_keywords) and not any(bagatelle in text_analyse for bagatelle in ["kratzer", "klein", "leicht", "papier", "schon vorbei"])
+
         st.markdown("---")
         st.subheader("💡 Ergebnis & Handlungsempfehlung")
 
-        # Ampel-Logik zur Entlastung vs. Sicherheit
-        if "hohes Fieber" in fieber_ja_nein or dauer == "Länger als eine Woche":
+        if ist_echter_notfall:
+            st.markdown(
+                """
+                <div class="card" style="border-left: 5px solid #dc2626; background-color: #fef2f2;">
+                    <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
+                    <p>Deine Beschreibung enthält Hinweise auf eine ernste oder akute Situation. Bitte warte nicht ab!</p>
+                    <p><b>Wähle sofort den Notruf:</b> Wähle die <b>112</b> oder lasse dir umgehend medizinische Hilfe holen.</p>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+        elif schweregrad == "Sehr stark / Heftig" or dauer == "Länger als eine Woche":
             st.markdown(
                 """
                 <div class="card" style="border-left: 5px solid #e11d48;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Arzttermin in den nächsten Tagen vereinbaren</h3>
-                    <p>Da deine Symptome länger anhalten oder von höherem Fieber begleitet werden, empfiehlt sich eine ärztliche Abklärung. Dies ist kein akuter Notfall für die Notaufnahme, aber ein Termin beim Hausarzt ist ratsam.</p>
-                    <p><b>Tipp zur Entlastung:</b> Rufe morgens in der Praxis an oder nutze Online-Termintools, anstatt ohne Termin hinzugehen.</p>
+                    <p>Da deine Beschwerden sehr stark sind oder länger anhalten, solltest du das von einem Arzt abklären lassen. Es ist kein akuter Notfall für den Rettungsdienst, aber ein Termin beim Hausarzt ist ratsam.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -157,14 +172,13 @@ if st.button("🚀 Vordiagnose & Empfehlung anfordern", type="primary", use_cont
             st.markdown(
                 """
                 <div class="card" style="border-left: 5px solid #16a34a;">
-                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Selbstbehandlung zu Hause (Kein Arztbesuch zwingend nötig)</h3>
-                    <p>Nach deiner Eingabe handelt es sich vermutlich um einen milden, nicht-akuten Verlauf. Du kannst versuchen, dich zu Hause zu schonen. Damit trägst du aktiv dazu bei, die Wartezimmer von Praxen für echte Notfälle zu entlasten.</p>
+                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Fall – Selbstbehandlung möglich</h3>
+                    <p>Nach deiner Eingabe handelt es sich um einen milden, unkritischen Fall (z.B. eine kleine Verletzung oder leichte Beschwerden). Du kannst versuchen, dich zu Hause zu schonen und musst damit nicht direkt eine Praxis aufsuchen.</p>
                     <br>
-                    <b>Bewährte Hausmittel & Tipps:</b>
+                    <b>Tipps zur Linderung:</b>
                     <ul>
-                        <li>Viel trinken (stilles Wasser oder Kräutertee)</li>
-                        <li>Ausreichend Körperruhe und Schlaf</li>
-                        <li>Bei Bedarf Raumklima anpassen und lüften</li>
+                        <li>Bei kleinen Wunden: Sauber halten und ggf. ein Pflaster aufkleben.</li>
+                        <li>Ausreichend trinken und körperlich etwas kürzertreten.</li>
                     </ul>
                 </div>
             """,
@@ -173,7 +187,7 @@ if st.button("🚀 Vordiagnose & Empfehlung anfordern", type="primary", use_cont
 
         # Wichtige Kontakte
         st.info(
-            "📞 **Wichtige Nummern:**\n"
-            "- **116 117**: Ärztlicher Bereitsitätsdienst (kostenlos, abends & am Wochenende)\n"
-            "- **112**: Notruf bei lebensbedrohlichen Notfällen (z.B. Brustschmerzen, Atemnot)"
+            "📞 **Hilfreiche Kontakte:**\n"
+            "- **116 117**: Ärztlicher Bereitsitätsdienst (für Abends & Wochenende)\n"
+            "- **112**: Notruf bei lebensbedrohlichen Notfällen"
         )
