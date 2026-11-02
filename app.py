@@ -112,8 +112,11 @@ hauptsymptom = st.selectbox(
     ],
 )
 
-# Optionaler Foto-Upload für visuelle Symptome (z.B. Hautausschlag, Schwellung)
-uploaded_file = st.file_uploader("📸 Optional: Foto hochladen (z.B. bei Hautausschlag oder Schwellung zur Analyse)", type=["jpg", "jpeg", "png"])
+# Optionaler Foto-Upload für visuelle Symptome
+uploaded_file = st.file_uploader(
+    "📸 Optional: Foto hochladen (z.B. bei Hautausschlag oder Schwellung zur Analyse)",
+    type=["jpg", "jpeg", "png"]
+)
 
 ai_bildbeschreibung = ""
 if uploaded_file:
@@ -133,9 +136,15 @@ if uploaded_file:
 
 col1, col2 = st.columns(2)
 with col1:
-    dauer = st.selectbox("Wie lange hast du das schon?", ["Wenige Stunden", "1 bis 2 Tage", "3 bis 5 Tage", "Länger als eine Woche"])
+    dauer = st.selectbox(
+        "Wie lange hast du das schon?",
+        ["Wenige Stunden", "1 bis 2 Tage", "3 bis 5 Tage", "Länger als eine Woche"]
+    )
 with col2:
-    schweregrad = st.selectbox("Wie stark sind die Beschwerden?", ["Leicht", "Mäßig", "Sehr stark"])
+    schweregrad = st.selectbox(
+        "Wie stark sind die Beschwerden?",
+        ["Leicht", "Mäßig", "Sehr stark"]
+    )
 
 zusaetzliche_infos = st.text_area(
     "Zusätzliche Infos / Beschreibung (optional):",
@@ -165,33 +174,43 @@ if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_contai
         st.subheader("💡 Spezifische Empfehlung & Handlung")
 
         if ist_echter_notfall:
-            st.markdown("""
+            st.markdown(
+                """
                 <div class="card" style="border-left: 5px solid #dc2626; background-color: #fef2f2;">
                     <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
                     <p>Deine Angaben enthalten Hinweise auf eine ernste Situation. Bitte warte nicht ab!</p>
                     <p><b>Wähle sofort den Notruf:</b> Wähle die <b>112</b>.</p>
                 </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
         elif visuelle_auffaeelligkeit or hauptsymptom == "Hautausschlag / Rötung / Schwellung":
-            st.markdown("""
+            st.markdown(
+                """
                 <div class="card" style="border-left: 5px solid #e11d48; background-color: #fff1f2;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung (Hauterscheinung / Ausschlag)</h3>
                     <p>Da eine sichtbare Hautveränderung, ein Ausschlag oder eine Rötung vorliegt (bzw. vom System erkannt wurde), sollte dies zeitnah von einem Arzt abgeklärt werden. Speziell im Gesicht oder bei unklaren Flecken ist Vorsicht geboten.</p>
                     <p><b>Tipp:</b> Nicht kratzen und auf Begleitsymptome wie Fieber achten.</p>
                 </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
-        elif hauptsymptom == "Gelenk- or Gliederschmerzen" or schweregrad == "Sehr stark":
-            st.markdown("""
+        elif hauptsymptom == "Gelenk- oder Gliederschmerzen" or schweregrad == "Sehr stark":
+            st.markdown(
+                """
                 <div class="card" style="border-left: 5px solid #e11d48;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Arzttermin in den nächsten Tagen</h3>
                     <p>Da die Beschwerden stark sind oder länger anhalten, empfiehlt sich eine ärztliche Abklärung beim Hausarzt.</p>
                 </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
         else:
-            st.markdown("""
+            st.markdown(
+                """
                 <div class="card" style="border-left: 5px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Fall – Selbstbehandlung möglich</h3>
                     <p>Nach deiner Eingabe handelt es sich um einen milden, unkritischen Verlauf. Du kannst versuchen, dich zu Hause zu schonen.</p>
@@ -199,4 +218,11 @@ if st.button("🚀 Spezifische Empfehlung anfordern", type="primary", use_contai
                     <b>Tipps zur Linderung:</b>
                     <ul>
                         <li>Ausreichend trinken und körperlich ausruhen.</li>
-                        <li>
+                        <li>Bei Bedarf Raumklima anpassen.</li>
+                    </ul>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+        st.info("📞 **Bereitsitätsdienst:** 116 117 (kostenlos bei Fragen außerhalb der Praxiszeiten)")
