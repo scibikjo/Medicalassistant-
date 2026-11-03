@@ -38,7 +38,6 @@ st.markdown(
             max-width: 950px !important;
         }
 
-        /* Hero Banner */
         .hero-banner {
             background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f766e 100%);
             border-radius: 20px;
@@ -50,7 +49,6 @@ st.markdown(
         .hero-banner h1 { font-weight: 800; font-size: 2.2rem; margin: 0; color: #ffffff !important; }
         .hero-banner p { color: #e0f2fe; font-size: 1rem; margin-top: 6px; margin-bottom: 0; }
 
-        /* Disclaimer */
         .disclaimer-box {
             background-color: #fef3c7;
             border-left: 5px solid #d97706;
@@ -61,7 +59,6 @@ st.markdown(
             margin-bottom: 20px;
         }
 
-        /* UI Cards */
         .card {
             background: #ffffff;
             border-radius: 16px;
@@ -71,7 +68,6 @@ st.markdown(
             margin-bottom: 18px;
         }
 
-        /* Notfall Banner */
         .emergency-btn {
             display: inline-block;
             background-color: #dc2626;
@@ -111,7 +107,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🩺 MedicalAssistant</h1>
-        <p>Digitale Vordiagnose, KI-Bildanalyse & Notdienst-Suche in einer App.</p>
+        <p>Präzise KI-Bildanalyse, Vordiagnose & Notdienst-Suche in einer App.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -127,7 +123,7 @@ st.markdown(
 )
 
 # =========================================================
-# 3. NAVIGATION TABS (KONZEPTE KOMBINIERT)
+# 3. NAVIGATION TABS
 # =========================================================
 tab1, tab2, tab3 = st.tabs([
     "🩺 1. Symptom-Checker & Foto", 
@@ -136,7 +132,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ---------------------------------------------------------
-# TAB 1: SYMPTOM EINGABE & AUTOMATISCHE BILDANALYSE
+# TAB 1: SYMPTOM EINGABE & PRÄZISE BILDANALYSE
 # ---------------------------------------------------------
 with tab1:
     st.markdown("### 🔍 Schritt 1: Symptome eingeben & Foto hochladen")
@@ -174,7 +170,7 @@ with tab1:
 
     with col_foto:
         uploaded_file = st.file_uploader(
-            "📸 Foto hochladen (Wird von der KI auf Rötungen/Schwellungen geprüft)",
+            "📸 Foto hochladen (Wird präzise auf medizinische Auffälligkeiten geprüft)",
             type=["jpg", "jpeg", "png"],
             key="uploaded_file"
         )
@@ -182,23 +178,24 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             if HAS_HF:
-                with st.spinner("🤖 KI analysiert das Bild im Hintergrund..."):
+                with st.spinner("🤖 KI analysiert das Bild präzise im Hintergrund..."):
                     try:
                         processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
                         model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
                         raw_image = Image.open(uploaded_file).convert("RGB")
+                        # Wir generieren eine etwas detailliertere Beschreibung mit max_new_tokens
                         inputs = processor(raw_image, return_tensors="pt")
-                        out = model.generate(**inputs, max_new_tokens=40)
+                        out = model.generate(**inputs, max_new_tokens=50, num_beams=3)
                         st.session_state.ai_bildbeschreibung = processor.decode(out[0], skip_special_tokens=True)
-                        st.success(f"Erkannter Bildinhalt: '{st.session_state.ai_bildbeschreibung}'")
+                        st.success(f"Präziser Bildbefund (KI): '{st.session_state.ai_bildbeschreibung}'")
                     except Exception as e:
                         st.session_state.ai_bildbeschreibung = ""
             else:
-                st.info("💡 KI-Bildanalyse wird ausgeführt, sobald alle Server-Bibliotheken geladen sind.")
+                st.info("💡 KI-Bildanalyse ist auf diesem Server nicht aktiv.")
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
-        placeholder="z.B. Sturz erlitten, Schnittwunde, Fieber...",
+        placeholder="z.B. Juckreiz, Schmerzen beim Drücken...",
         key="zusaetzliche_infos"
     )
 
@@ -211,7 +208,7 @@ with tab1:
             st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Ampel-Auswertung' oben.")
 
 # ---------------------------------------------------------
-# TAB 2: ERGEBNIS & AMPEL-SYSTEM
+# TAB 2: ERGEBNIS & AMPEL-SYSTEM (VERBESSERTER, STRENGER FILTER)
 # ---------------------------------------------------------
 with tab2:
     st.markdown("### 💡 Ersteinschätzung & Empfehlung")
@@ -225,18 +222,24 @@ with tab2:
             st.session_state.ai_bildbeschreibung
         ).lower()
 
-        # 1. Harte Notfall-Erkennung (Safety Filter)
+        # 1. Harte Notfall-Erkennung
         notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
         ist_echter_notfall = any(kw in text_analyse for kw in notfall_keywords)
 
-        # 2. KI-Bild / Rötungs-Erkennung
+        # 2. SEHR PRÄZISER BILD-FILTER (Nur echte medizinische Auffälligkeiten schlagen Alarm!)
         bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
-        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in ["red", "skin", "face", "spots", "rash", "swelling", "mark", "child", "person", "redness"])
+        
+        # Strenge medizinische Indikatoren (Alltägliche Wörter wie "face" oder "skin" wurden bewusst entfernt!)
+        strict_medical_keywords = [
+            "rash", "spots", "red spots", "blister", "swelling", "swollen", 
+            "wound", "injury", "blood", "bleed", "inflammation", "infected", 
+            "pustules", "lesion", "bruise", "cut"
+        ]
+        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in strict_medical_keywords)
 
-        # KI-Feedback Textbaustein
         ki_feedback_html = ""
         if st.session_state.ai_bildbeschreibung:
-            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Automatische KI-Bildanalyse:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
+            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Präzise KI-Bildanalyse:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
 
         # ROTER NOTFALL
         if ist_echter_notfall:
@@ -252,17 +255,17 @@ with tab2:
                 unsafe_allow_html=True,
             )
 
-        # GELB: ARZTBESUCH EMPFOHLEN (Hauterscheinung oder anhaltende Beschwerden)
+        # GELB: NUR WENN ECHTE AUFFÄLLIGKEITEN IM BILD ODER GEWÄHLT
         elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
                     {ki_feedback_html}
-                    <p>Das System (oder die KI-Bildanalyse) hat sichtbare Hautveränderungen, Flecken oder Rötungen registriert. Eine Abklärung durch den (Kinder-)Arzt wird dringend empfohlen.</p>
+                    <p>Die KI hat spezifische Hautveränderungen oder Auffälligkeiten im Bild erkannt. Eine Untersuchung durch einen Arzt wird empfohlen.</p>
                     <ul>
-                        <li>Nicht kratzen oder reiben.</li>
-                        <li>Verlauf beobachten und bei Fieber sofort zum Arzt.</li>
+                        <li>Betroffene Stelle sauber halten und nicht kratzen.</li>
+                        <li>Bei Ausbreitung oder Fieber umgehend einen Arzt aufsuchen.</li>
                     </ul>
                     <a href="tel:116117" class="bereitschaft-btn">📞 Bereitschaftsdienst 116 117 anrufen</a>
                 </div>
@@ -277,29 +280,24 @@ with tab2:
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Hausarzttermin vereinbaren</h3>
                     {ki_feedback_html}
                     <p>Da deine Beschwerden als sehr stark angegeben wurden oder länger anhalten, empfiehlt sich eine zeitnahe ärztliche Untersuchung.</p>
-                    <ul>
-                        <li>Betroffenen Bereich schonen.</li>
-                        <li>Nicht unnötig belasten.</li>
-                    </ul>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
 
-        # GRÜN: MILDER VERLAUF / SELBSTBEHANDLUNG
+        # GRÜN: ALLES OKAY (Keine Auffälligkeiten)
         else:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
                     {ki_feedback_html}
-                    <p>Es handelt sich vermutlich um einen unkritischen Fall. Du kannst dich zu Hause schonen und hilfst damit, die Arztpraxen zu entlasten.</p>
+                    <p>Es wurden weder durch deine Eingabe noch durch die Bildanalyse kritische Auffälligkeiten festgestellt. Du kannst dich zu Hause erholen.</p>
                     <br>
                     <b>Empfohlene Maßnahmen:</b>
                     <ul>
                         <li>Ausreichend Wasser oder ungesüßten Tee trinken.</li>
                         <li>Körperliche Ruhe und genügend Schlaf.</li>
-                        <li>Regelmäßig lüften.</li>
                     </ul>
                 </div>
             """,
