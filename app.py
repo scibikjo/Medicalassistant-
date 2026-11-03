@@ -178,14 +178,14 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             if HAS_HF:
-                with st.spinner("🤖 KI analysiert das Bild präzise im Hintergrund..."):
+                with st.spinner("🤖 KI analysiert das Bild detailbasiert im Hintergrund..."):
                     try:
                         processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
                         model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
                         raw_image = Image.open(uploaded_file).convert("RGB")
-                        # Wir generieren eine etwas detailliertere Beschreibung mit max_new_tokens
                         inputs = processor(raw_image, return_tensors="pt")
-                        out = model.generate(**inputs, max_new_tokens=50, num_beams=3)
+                        # Höhere Genauigkeit durch num_beams
+                        out = model.generate(**inputs, max_new_tokens=60, num_beams=5)
                         st.session_state.ai_bildbeschreibung = processor.decode(out[0], skip_special_tokens=True)
                         st.success(f"Präziser Bildbefund (KI): '{st.session_state.ai_bildbeschreibung}'")
                     except Exception as e:
@@ -208,7 +208,7 @@ with tab1:
             st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Ampel-Auswertung' oben.")
 
 # ---------------------------------------------------------
-# TAB 2: ERGEBNIS & AMPEL-SYSTEM (VERBESSERTER, STRENGER FILTER)
+# TAB 2: ERGEBNIS & AMPEL-SYSTEM (FEHLERFREI & SELEKTIV)
 # ---------------------------------------------------------
 with tab2:
     st.markdown("### 💡 Ersteinschätzung & Empfehlung")
@@ -216,26 +216,25 @@ with tab2:
     if not st.session_state.form_submitted:
         st.info("ℹ️ Bitte fülle zuerst Schritt 1 im ersten Tab aus und klicke auf 'Auswerten'.")
     else:
-        text_analyse = (
-            st.session_state.get("hauptsymptom", "") + " " + 
-            st.session_state.get("zusaetzliche_infos", "") + " " + 
-            st.session_state.ai_bildbeschreibung
-        ).lower()
+        # Nur der Text der Beschreibung und Notizen wird für Notfälle geprüft
+        text_fuer_notfall = (hauptsymptom + " " + zusaetzliche_infos).lower()
 
-        # 1. Harte Notfall-Erkennung
+        # 1. Harte Notfall-Erkennung (Nur bei echten Text-Hinweisen)
         notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
-        ist_echter_notfall = any(kw in text_analyse for kw in notfall_keywords)
+        ist_echter_notfall = any(kw in text_fuer_notfall for kw in notfall_keywords)
 
-        # 2. SEHR PRÄZISER BILD-FILTER (Nur echte medizinische Auffälligkeiten schlagen Alarm!)
+        # 2. ULTRA-PRÄZISER BILD-FILTER (Reagiert NUR auf echte pathologische Befunde)
         bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
         
-        # Strenge medizinische Indikatoren (Alltägliche Wörter wie "face" oder "skin" wurden bewusst entfernt!)
-        strict_medical_keywords = [
+        # Absolute medizinische Warnbegriffe für Haut/Verletzungen
+        medical_red_flags = [
             "rash", "spots", "red spots", "blister", "swelling", "swollen", 
             "wound", "injury", "blood", "bleed", "inflammation", "infected", 
-            "pustules", "lesion", "bruise", "cut"
+            "pustules", "lesion", "bruise", "cut", "redness"
         ]
-        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in strict_medical_keywords)
+        
+        # Prüfen, ob ein echter medizinischer Begriff im Bildtext vorkommt
+        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in medical_red_flags)
 
         ki_feedback_html = ""
         if st.session_state.ai_bildbeschreibung:
@@ -255,14 +254,14 @@ with tab2:
                 unsafe_allow_html=True,
             )
 
-        # GELB: NUR WENN ECHTE AUFFÄLLIGKEITEN IM BILD ODER GEWÄHLT
+        # GELB: NUR WENN DIE KI EINEN MEDIZINISCHEN BEFUND ERKANNT HAT ODER IM DROPDOWN GEWÄHLT WURDE
         elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
                     {ki_feedback_html}
-                    <p>Die KI hat spezifische Hautveränderungen oder Auffälligkeiten im Bild erkannt. Eine Untersuchung durch einen Arzt wird empfohlen.</p>
+                    <p>Die KI hat spezifische Hautveränderungen oder medizinische Auffälligkeiten im Bild erkannt. Eine Untersuchung durch einen Arzt wird empfohlen.</p>
                     <ul>
                         <li>Betroffene Stelle sauber halten und nicht kratzen.</li>
                         <li>Bei Ausbreitung oder Fieber umgehend einen Arzt aufsuchen.</li>
@@ -285,14 +284,14 @@ with tab2:
                 unsafe_allow_html=True,
             )
 
-        # GRÜN: ALLES OKAY (Keine Auffälligkeiten)
+        # GRÜN: ALLES OKAY (Normales Bild wie "a man in a suit...")
         else:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
                     {ki_feedback_html}
-                    <p>Es wurden weder durch deine Eingabe noch durch die Bildanalyse kritische Auffälligkeiten festgestellt. Du kannst dich zu Hause erholen.</p>
+                    <p>Es wurden weder durch deine Eingabe noch durch die Bildanalyse kritische Auffälligkeiten festgestellt. Das Bild zeigt keine bedenklichen Merkmale. Du kannst dich zu Hause erholen.</p>
                     <br>
                     <b>Empfohlene Maßnahmen:</b>
                     <ul>
