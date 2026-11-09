@@ -173,22 +173,19 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             
+            # --- TOKEN TEST & DEBUG ---
+            hf_token = st.secrets.get("HF_TOKEN", "")
+            st.info(f"🔍 **Debug-Status:** Token in Secrets gefunden? **{bool(hf_token)}**")
+            
             # API Aufruf zu Hugging Face
-            with st.spinner("🤖 Sende Bild an Hugging Face API..."):
-                try:
-                    # Token aus Streamlit Secrets holen
-                    hf_token = st.secrets.get("HF_TOKEN", "")
-                    
-                    if not hf_token:
-                        st.warning("⚠️ Kein Hugging Face Token (HF_TOKEN) in den Streamlit Secrets gefunden. Bildanalyse via API übersprungen.")
-                    else:
+            if hf_token:
+                with st.spinner("🤖 Sende Bild an Hugging Face API..."):
+                    try:
                         API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
                         headers = {"Authorization": f"Bearer {hf_token}"}
-                        
-                        # Bild in Bytes konvertieren
                         image_bytes = uploaded_file.getvalue()
                         
-                        response = requests.post(API_URL, headers=headers, data=image_bytes)
+                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=10)
                         result = response.json()
                         
                         if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
@@ -198,9 +195,11 @@ with tab1:
                             st.error(f"API Fehler: {result['error']}")
                         else:
                             st.session_state.ai_bildbeschreibung = ""
-                except Exception as e:
-                    st.error(f"Verbindungsfehler zur API: {e}")
-                    st.session_state.ai_bildbeschreibung = ""
+                    except Exception as e:
+                        st.error(f"Verbindungsfehler zur API: {e}")
+                        st.session_state.ai_bildbeschreibung = ""
+            else:
+                st.warning("⚠️ Kein Hugging Face Token (HF_TOKEN) konfiguriert. Bitte trage den Token in den Streamlit Secrets ein.")
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
@@ -231,7 +230,7 @@ with tab2:
         notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
         ist_echter_notfall = any(kw in text_fuer_notfall for kw in notfall_keywords)
 
-        # Selektiver Bildfilter (Ignoriert Alltagsbilder wie "a man in a suit")
+        # Selektiver Bildfilter
         bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
         medical_red_flags = [
             "rash", "spots", "red spots", "blister", "swelling", "swollen", 
@@ -258,14 +257,14 @@ with tab2:
                 unsafe_allow_html=True,
             )
 
-        # GELB: NUR BEI MEDIZINISCHEN BEFUNDEN ODER ENTSPRECHENDEM SYMPTOM
+        # GELB
         elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
                     {ki_feedback_html}
-                    <p>Die API hat spezifische Auffälligkeiten im Bild registriert oder es wurde ein entsprechender Hautsymptom-Bereich gewählt. Eine Untersuchung wird empfohlen.</p>
+                    <p>Die API hat spezifische Auffälligkeiten im Bild registriert oder es wurde ein entsprechender Hautsymptom-Bereich gewählt.</p>
                     <a href="tel:116117" class="bereitschaft-btn">📞 Bereitschaftsdienst 116 117 anrufen</a>
                 </div>
             """,
@@ -284,14 +283,14 @@ with tab2:
                 unsafe_allow_html=True,
             )
 
-        # GRÜN: HARMLOS (z.B. "a man in a suit...")
+        # GRÜN
         else:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
                     {ki_feedback_html}
-                    <p>Keine kritischen Auffälligkeiten im Bild oder in den Angaben festgestellt. Du kannst dich zu Hause erholen.</p>
+                    <p>Keine kritischen Auffälligkeiten im Bild oder in den Angaben festgestellt.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
