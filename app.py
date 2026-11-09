@@ -2,7 +2,7 @@ import io
 import datetime
 import streamlit as st
 from PIL import Image
-import requests
+from huggingface_hub import InferenceClient
 
 # =========================================================
 # 1. STREAMLIT CONFIG & VISUELLES DESIGN
@@ -173,33 +173,32 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             
-            # --- TOKEN TEST & DEBUG ---
             hf_token = st.secrets.get("HF_TOKEN", "")
             st.info(f"🔍 **Debug-Status:** Token in Secrets gefunden? **{bool(hf_token)}**")
             
-            # API Aufruf zu Hugging Face
             if hf_token:
                 with st.spinner("🤖 Sende Bild an Hugging Face API..."):
                     try:
-                        API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
-                        headers = {"Authorization": f"Bearer {hf_token}"}
+                        # Moderner InferenceClient (stabiler bei DNS/Netzwerk)
+                        client = InferenceClient(
+                            model="Salesforce/blip-image-captioning-base",
+                            token=hf_token
+                        )
                         image_bytes = uploaded_file.getvalue()
+                        image = Image.open(io.BytesIO(image_bytes))
                         
-                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=10)
-                        result = response.json()
+                        result = client.image_to_text(image)
                         
-                        if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
-                            st.session_state.ai_bildbeschreibung = result[0]["generated_text"]
+                        if result:
+                            st.session_state.ai_bildbeschreibung = result
                             st.success(f"API-Befund: '{st.session_state.ai_bildbeschreibung}'")
-                        elif "error" in result:
-                            st.error(f"API Fehler: {result['error']}")
                         else:
                             st.session_state.ai_bildbeschreibung = ""
                     except Exception as e:
                         st.error(f"Verbindungsfehler zur API: {e}")
                         st.session_state.ai_bildbeschreibung = ""
             else:
-                st.warning("⚠️ Kein Hugging Face Token (HF_TOKEN) konfiguriert. Bitte trage den Token in den Streamlit Secrets ein.")
+                st.warning("⚠️ Kein Hugging Face Token (HF_TOKEN) konfiguriert.")
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
@@ -226,11 +225,9 @@ with tab2:
     else:
         text_fuer_notfall = (hauptsymptom + " " + zusaetzliche_infos).lower()
 
-        # Harte Notfall-Erkennung
         notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
         ist_echter_notfall = any(kw in text_fuer_notfall for kw in notfall_keywords)
 
-        # Selektiver Bildfilter
         bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
         medical_red_flags = [
             "rash", "spots", "red spots", "blister", "swelling", "swollen", 
@@ -243,7 +240,6 @@ with tab2:
         if st.session_state.ai_bildbeschreibung:
             ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Hugging Face API Befund:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
 
-        # ROTER NOTFALL
         if ist_echter_notfall:
             st.markdown(
                 f"""
@@ -256,8 +252,6 @@ with tab2:
             """,
                 unsafe_allow_html=True,
             )
-
-        # GELB
         elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
             st.markdown(
                 f"""
@@ -270,7 +264,6 @@ with tab2:
             """,
                 unsafe_allow_html=True,
             )
-
         elif st.session_state.get("hauptsymptom") == "Gelenk- oder Gliederschmerzen" or st.session_state.get("schweregrad") == "Sehr stark":
             st.markdown(
                 f"""
@@ -282,8 +275,6 @@ with tab2:
             """,
                 unsafe_allow_html=True,
             )
-
-        # GRÜN
         else:
             st.markdown(
                 f"""
