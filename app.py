@@ -1,19 +1,14 @@
+import io
 import datetime
 import streamlit as st
 from PIL import Image
-
-# Hugging Face für Bildanalyse (optional, falls installiert)
-try:
-    from transformers import BlipForConditionalGeneration, BlipProcessor
-    HAS_HF = True
-except ImportError:
-    HAS_HF = False
+import requests
 
 # =========================================================
-# 1. STREAMLIT CONFIG & VISUELLES DESIGN (Multi-Tab UI)
+# 1. STREAMLIT CONFIG & VISUELLES DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – Digitale Vordiagnose & Orientierung",
+    page_title="MedicalAssistant – API Edition",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -107,7 +102,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🩺 MedicalAssistant</h1>
-        <p>Präzise KI-Bildanalyse, Vordiagnose & Notdienst-Suche in einer App.</p>
+        <p>Hugging Face API Bildanalyse, Vordiagnose & Notdienst-Suche.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -116,7 +111,7 @@ st.markdown(
 st.markdown(
     """
     <div class="disclaimer-box">
-        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient der Orientierung und Praxen-Entlastung. Sie ersetzt <b>keine</b> ärztliche Diagnose. Bei Lebensgefahr bitte sofort die <b>112</b> wählen!
+        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient der Orientierung. Sie ersetzt <b>keine</b> ärztliche Diagnose. Bei Lebensgefahr bitte sofort die <b>112</b> wählen!
     </div>
 """,
     unsafe_allow_html=True,
@@ -132,7 +127,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ---------------------------------------------------------
-# TAB 1: SYMPTOM EINGABE & PRÄZISE BILDANALYSE
+# TAB 1: SYMPTOM EINGABE & API-BILDANALYSE
 # ---------------------------------------------------------
 with tab1:
     st.markdown("### 🔍 Schritt 1: Symptome eingeben & Foto hochladen")
@@ -170,28 +165,42 @@ with tab1:
 
     with col_foto:
         uploaded_file = st.file_uploader(
-            "📸 Foto hochladen (Wird präzise auf medizinische Auffälligkeiten geprüft)",
+            "📸 Foto hochladen (Wird über die Hugging Face API analysiert)",
             type=["jpg", "jpeg", "png"],
             key="uploaded_file"
         )
 
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
-            if HAS_HF:
-                with st.spinner("🤖 KI analysiert das Bild detailbasiert im Hintergrund..."):
-                    try:
-                        processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-                        model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-                        raw_image = Image.open(uploaded_file).convert("RGB")
-                        inputs = processor(raw_image, return_tensors="pt")
-                        # Höhere Genauigkeit durch num_beams
-                        out = model.generate(**inputs, max_new_tokens=60, num_beams=5)
-                        st.session_state.ai_bildbeschreibung = processor.decode(out[0], skip_special_tokens=True)
-                        st.success(f"Präziser Bildbefund (KI): '{st.session_state.ai_bildbeschreibung}'")
-                    except Exception as e:
-                        st.session_state.ai_bildbeschreibung = ""
-            else:
-                st.info("💡 KI-Bildanalyse ist auf diesem Server nicht aktiv.")
+            
+            # API Aufruf zu Hugging Face
+            with st.spinner("🤖 Sende Bild an Hugging Face API..."):
+                try:
+                    # Token aus Streamlit Secrets holen
+                    hf_token = st.secrets.get("HF_TOKEN", "")
+                    
+                    if not hf_token:
+                        st.warning("⚠️ Kein Hugging Face Token (HF_TOKEN) in den Streamlit Secrets gefunden. Bildanalyse via API übersprungen.")
+                    else:
+                        API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
+                        headers = {"Authorization": f"Bearer {hf_token}"}
+                        
+                        # Bild in Bytes konvertieren
+                        image_bytes = uploaded_file.getvalue()
+                        
+                        response = requests.post(API_URL, headers=headers, data=image_bytes)
+                        result = response.json()
+                        
+                        if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
+                            st.session_state.ai_bildbeschreibung = result[0]["generated_text"]
+                            st.success(f"API-Befund: '{st.session_state.ai_bildbeschreibung}'")
+                        elif "error" in result:
+                            st.error(f"API Fehler: {result['error']}")
+                        else:
+                            st.session_state.ai_bildbeschreibung = ""
+                except Exception as e:
+                    st.error(f"Verbindungsfehler zur API: {e}")
+                    st.session_state.ai_bildbeschreibung = ""
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
@@ -205,10 +214,10 @@ with tab1:
             st.error("Bitte wähle zuerst ein Hauptsymptom aus.")
         else:
             st.session_state.form_submitted = True
-            st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Ampel-Auswertung' oben.")
+            st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Ampel-Auswertung'.")
 
 # ---------------------------------------------------------
-# TAB 2: ERGEBNIS & AMPEL-SYSTEM (FEHLERFREI & SELEKTIV)
+# TAB 2: ERGEBNIS & AMPEL-SYSTEM (CLEVERE LOGIK)
 # ---------------------------------------------------------
 with tab2:
     st.markdown("### 💡 Ersteinschätzung & Empfehlung")
@@ -216,29 +225,24 @@ with tab2:
     if not st.session_state.form_submitted:
         st.info("ℹ️ Bitte fülle zuerst Schritt 1 im ersten Tab aus und klicke auf 'Auswerten'.")
     else:
-        # Nur der Text der Beschreibung und Notizen wird für Notfälle geprüft
         text_fuer_notfall = (hauptsymptom + " " + zusaetzliche_infos).lower()
 
-        # 1. Harte Notfall-Erkennung (Nur bei echten Text-Hinweisen)
+        # Harte Notfall-Erkennung
         notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
         ist_echter_notfall = any(kw in text_fuer_notfall for kw in notfall_keywords)
 
-        # 2. ULTRA-PRÄZISER BILD-FILTER (Reagiert NUR auf echte pathologische Befunde)
+        # Selektiver Bildfilter (Ignoriert Alltagsbilder wie "a man in a suit")
         bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
-        
-        # Absolute medizinische Warnbegriffe für Haut/Verletzungen
         medical_red_flags = [
             "rash", "spots", "red spots", "blister", "swelling", "swollen", 
             "wound", "injury", "blood", "bleed", "inflammation", "infected", 
             "pustules", "lesion", "bruise", "cut", "redness"
         ]
-        
-        # Prüfen, ob ein echter medizinischer Begriff im Bildtext vorkommt
         visuelle_auffaeelligkeit = any(w in bild_text_lower for w in medical_red_flags)
 
         ki_feedback_html = ""
         if st.session_state.ai_bildbeschreibung:
-            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Präzise KI-Bildanalyse:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
+            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Hugging Face API Befund:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
 
         # ROTER NOTFALL
         if ist_echter_notfall:
@@ -247,25 +251,21 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #dc2626; background-color: #fef2f2;">
                     <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
                     {ki_feedback_html}
-                    <p>Deine Angaben enthalten Hinweise auf eine lebensbedrohliche oder akute Notfallsituation. Bitte verliere keine Zeit!</p>
+                    <p>Deine Angaben enthalten Hinweise auf eine akute Notfallsituation. Bitte verliere keine Zeit!</p>
                     <a href="tel:112" class="emergency-btn">📞 Sofort 112 Anrufen</a>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
 
-        # GELB: NUR WENN DIE KI EINEN MEDIZINISCHEN BEFUND ERKANNT HAT ODER IM DROPDOWN GEWÄHLT WURDE
+        # GELB: NUR BEI MEDIZINISCHEN BEFUNDEN ODER ENTSPRECHENDEM SYMPTOM
         elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
                     {ki_feedback_html}
-                    <p>Die KI hat spezifische Hautveränderungen oder medizinische Auffälligkeiten im Bild erkannt. Eine Untersuchung durch einen Arzt wird empfohlen.</p>
-                    <ul>
-                        <li>Betroffene Stelle sauber halten und nicht kratzen.</li>
-                        <li>Bei Ausbreitung oder Fieber umgehend einen Arzt aufsuchen.</li>
-                    </ul>
+                    <p>Die API hat spezifische Auffälligkeiten im Bild registriert oder es wurde ein entsprechender Hautsymptom-Bereich gewählt. Eine Untersuchung wird empfohlen.</p>
                     <a href="tel:116117" class="bereitschaft-btn">📞 Bereitschaftsdienst 116 117 anrufen</a>
                 </div>
             """,
@@ -278,26 +278,20 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #e11d48;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Hausarzttermin vereinbaren</h3>
                     {ki_feedback_html}
-                    <p>Da deine Beschwerden als sehr stark angegeben wurden oder länger anhalten, empfiehlt sich eine zeitnahe ärztliche Untersuchung.</p>
+                    <p>Starke Beschwerden erfordern eine zeitnahe ärztliche Abklärung.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
 
-        # GRÜN: ALLES OKAY (Normales Bild wie "a man in a suit...")
+        # GRÜN: HARMLOS (z.B. "a man in a suit...")
         else:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
                     {ki_feedback_html}
-                    <p>Es wurden weder durch deine Eingabe noch durch die Bildanalyse kritische Auffälligkeiten festgestellt. Das Bild zeigt keine bedenklichen Merkmale. Du kannst dich zu Hause erholen.</p>
-                    <br>
-                    <b>Empfohlene Maßnahmen:</b>
-                    <ul>
-                        <li>Ausreichend Wasser oder ungesüßten Tee trinken.</li>
-                        <li>Körperliche Ruhe und genügend Schlaf.</li>
-                    </ul>
+                    <p>Keine kritischen Auffälligkeiten im Bild oder in den Angaben festgestellt. Du kannst dich zu Hause erholen.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -308,7 +302,7 @@ with tab2:
 # ---------------------------------------------------------
 with tab3:
     st.markdown("### 🗺️ Arztlichen Bereitschaftsdienst finden")
-    st.write("Wenn die Arztpraxen geschlossen sind (abends oder am Wochenende), hilft der ärztliche Bereitschaftsdienst unter **116 117**.")
+    st.write("Bei geschlossenen Praxen hilft der ärztliche Bereitschaftsdienst unter **116 117**.")
 
     col_plz, col_suche = st.columns([2, 1])
     with col_plz:
@@ -316,13 +310,11 @@ with tab3:
     
     if plz_eingabe:
         st.success(f"📍 Nächstgelegene Bereitschaftspraxis für PLZ **{plz_eingabe}**:")
-        
         st.markdown(
             f"""
             <div class="card">
                 <h4>🏥 Bereitschaftspraxis Zentrums-Klinik</h4>
                 <p><b>Adresse:</b> Hauptstraße 42, {plz_eingabe}</p>
-                <p><b>Öffnungszeiten:</b> Mo - Fr: 19:00 - 22:00 Uhr | Sa - So: 08:00 - 20:00 Uhr</p>
                 <p><b>Status:</b> <span style="color: green; font-weight: bold;">Geöffnet</span></p>
                 <hr>
                 <a href="tel:116117" class="bereitschaft-btn">📞 Anrufen: 116 117</a>
@@ -332,4 +324,4 @@ with tab3:
             unsafe_allow_html=True,
         )
     else:
-        st.info("💡 Gib oben deine PLZ ein, um die nächstgelegene Praxis anzuzeigen.")
+        st.info("💡 Gib oben deine PLZ ein, um die Praxis anzuzeigen.")
