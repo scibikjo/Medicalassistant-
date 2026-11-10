@@ -8,11 +8,21 @@ import requests
 # 1. STREAMLIT CONFIG & VISUELLES DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – API Edition (Variante B)",
+    page_title="MedicalAssistant – API Edition",
     page_icon="🩺",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
+
+# Sidebar für Einstellungen (z.B. Schul-WLAN Fallback)
+with st.sidebar:
+    st.markdown("### ⚙️ App-Einstellungen")
+    offline_mode = st.checkbox(
+        "🛠️ Offline- / Testmodus aktivieren", 
+        value=False,
+        help="Aktiviere diese Option, falls das Schul-WLAN oder eine Firewall den API-Zugriff blockiert."
+    )
+    st.info("ℹ️ Im Testmodus werden realistische Befunde simuliert, falls keine Internetverbindung zur API besteht.")
 
 st.markdown(
     """
@@ -25,7 +35,7 @@ st.markdown(
             color: #0f172a !important;
         }
 
-        #MainMenu, footer, header { visibility: hidden !important; }
+        #MainMenu, footer { visibility: hidden !important; }
         
         .block-container {
             padding-top: 1.5rem !important;
@@ -98,7 +108,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🩺 MedicalAssistant</h1>
-        <p>Hugging Face API Bildanalyse, Vordiagnose & Notdienst-Suche (Variante B).</p>
+        <p>Hugging Face API Bildanalyse, Vordiagnose & Notdienst-Suche.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -155,7 +165,7 @@ with tab1:
 
     with col_foto:
         uploaded_file = st.file_uploader(
-            "📸 Foto hochladen (Wird direkt über die Hugging Face API analysiert)",
+            "📸 Foto hochladen (Wird analysiert)",
             type=["jpg", "jpeg", "png"],
             key="uploaded_file"
         )
@@ -163,42 +173,43 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             
-            # Token aus den Streamlit Secrets laden
-            hf_token = st.secrets.get("HF_TOKEN", "")
-            
-            if not hf_token:
-                st.error("❌ Kein `HF_TOKEN` gefunden! Bitte trage deinen Token in den Streamlit-Secrets ein.")
-                st.session_state.ai_bildbeschreibung = ""
+            # Wenn Offline-Modus per Sidebar aktiviert ist, direkt simulieren
+            if offline_mode:
+                st.info("🛠️ Offline-Modus aktiv: Simuliere Bildanalyse für den Test.")
+                st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
             else:
-                with st.spinner("🤖 Analysiere Bild über die Hugging Face Inference API..."):
-                    try:
-                        API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
-                        headers = {"Authorization": f"Bearer {hf_token}"}
-                        image_bytes = uploaded_file.getvalue()
-                        
-                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=30)
-                        
-                        if response.status_code == 200:
-                            result = response.json()
-                            if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
-                                st.session_state.ai_bildbeschreibung = result[0]["generated_text"]
-                                st.success(f"✅ Echter API-Befund: '{st.session_state.ai_bildbeschreibung}'")
-                            else:
-                                st.error("⚠️ Unerwartetes Antwortformat der API erhalten.")
-                                st.session_state.ai_bildbeschreibung = ""
-                        elif response.status_code == 503:
-                            st.warning("⏳ Das KI-Modell startet gerade auf den Servern (Cold Start). Bitte kurz warten und erneut auswerten.")
-                            st.session_state.ai_bildbeschreibung = "Modell lädt..."
-                        else:
-                            st.error(f"❌ API-Fehler (Status {response.status_code}): {response.text}")
-                            st.session_state.ai_bildbeschreibung = ""
+                hf_token = st.secrets.get("HF_TOKEN", "")
+                
+                if not hf_token:
+                    st.error("❌ Kein `HF_TOKEN` gefunden! Trage ihn in den Secrets ein oder aktiviere den Offline-Modus in der Sidebar.")
+                    st.session_state.ai_bildbeschreibung = ""
+                else:
+                    with st.spinner("🤖 Analysiere Bild über die Hugging Face API..."):
+                        try:
+                            API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
+                            headers = {"Authorization": f"Bearer {hf_token}"}
+                            image_bytes = uploaded_file.getvalue()
                             
-                    except requests.exceptions.Timeout:
-                        st.error("⏱️ Zeitüberschreitung: Die Hugging Face API hat nicht rechtzeitig geantwortet.")
-                        st.session_state.ai_bildbeschreibung = ""
-                    except Exception as e:
-                        st.error(f"❌ Verbindungsfehler: {e}")
-                        st.session_state.ai_bildbeschreibung = ""
+                            response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=15)
+                            
+                            if response.status_code == 200:
+                                result = response.json()
+                                if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
+                                    st.session_state.ai_bildbeschreibung = result[0]["generated_text"]
+                                    st.success(f"✅ Echter API-Befund: '{st.session_state.ai_bildbeschreibung}'")
+                                else:
+                                    st.error("⚠️ Unerwartetes Antwortformat der API.")
+                                    st.session_state.ai_bildbeschreibung = ""
+                            elif response.status_code == 503:
+                                st.warning("⏳ Das KI-Modell startet auf dem Server (Cold Start). Bitte kurz warten und erneut auswerten.")
+                            else:
+                                st.error(f"❌ API-Fehler (Status {response.status_code}): {response.text}")
+                                st.session_state.ai_bildbeschreibung = ""
+                                
+                        except Exception as e:
+                            st.error(f"❌ Verbindungsfehler (Vermutlich Firewall/Schulnetz): {e}")
+                            st.info("💡 Tipp: Aktiviere links in der Sidebar den 'Offline- / Testmodus', um die App in der Schule vorzuführen.")
+                            st.session_state.ai_bildbeschreibung = ""
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
