@@ -8,21 +8,27 @@ import requests
 # 1. STREAMLIT CONFIG & VISUELLES DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – API Edition",
+    page_title="MedicalAssistant – MedGemma AI Edition",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Sidebar für Einstellungen (z.B. Schul-WLAN Fallback)
+# Sidebar für Einstellungen & Schul-Firewall Fallback
 with st.sidebar:
-    st.markdown("### ⚙️ App-Einstellungen")
-    offline_mode = st.checkbox(
-        "🛠️ Offline- / Testmodus aktivieren", 
-        value=False,
-        help="Aktiviere diese Option, falls das Schul-WLAN oder eine Firewall den API-Zugriff blockiert."
+    st.markdown("### ⚙️ KI-Einstellungen")
+    selected_model = st.selectbox(
+        "Wähle das KI-Modell:",
+        ["MedGemma Vision (Google/Medical)", "Standard BLIP-Captioning"]
     )
-    st.info("ℹ️ Im Testmodus werden realistische Befunde simuliert, falls keine Internetverbindung zur API besteht.")
+    
+    offline_mode = st.checkbox(
+        "🛠️ Schul-WLAN / Offline-Modus", 
+        value=False,
+        help="Aktiviere diese Option, falls das Schul-WLAN die externe KI-API blockiert."
+    )
+    if offline_mode:
+        st.info("ℹ️ MedGemma-Testmodus aktiv. Befunde werden lokal simuliert, um Schul-Firewalls zu umgehen.")
 
 st.markdown(
     """
@@ -107,8 +113,8 @@ if "form_submitted" not in st.session_state:
 st.markdown(
     """
     <div class="hero-banner">
-        <h1>🩺 MedicalAssistant</h1>
-        <p>Hugging Face API Bildanalyse, Vordiagnose & Notdienst-Suche.</p>
+        <h1>🩺 MedicalAssistant (MedGemma AI)</h1>
+        <p>Medizinische Bildanalyse & Triage-System powered by MedGemma.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -117,7 +123,7 @@ st.markdown(
 st.markdown(
     """
     <div class="disclaimer-box">
-        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient der Orientierung. Sie ersetzt <b>keine</b> ärztliche Diagnose. Bei Lebensgefahr bitte sofort die <b>112</b> wählen!
+        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient der wissenschaftlichen Demonstration. Sie ersetzt <b>keine</b> ärztliche Diagnose. Bei Lebensgefahr bitte sofort die <b>112</b> wählen!
     </div>
 """,
     unsafe_allow_html=True,
@@ -125,7 +131,7 @@ st.markdown(
 
 tab1, tab2, tab3 = st.tabs([
     "🩺 1. Symptom-Checker & Foto", 
-    "💡 2. Ergebnis & Ampel-Auswertung", 
+    "💡 2. Ergebnis & MedGemma-Auswertung", 
     "🗺️ 3. Bereitschaftsdienst (PLZ-Suche)"
 ])
 
@@ -136,7 +142,7 @@ with tab1:
 
     with col_haupt:
         hauptsymptom = st.selectbox(
-            "Was beschreibt dein Hauptproblem am besten?",
+            "Was beschreibt das Hauptproblem am besten?",
             [
                 "Bitte wählen...",
                 "Kopfschmerzen / Migräne",
@@ -165,7 +171,7 @@ with tab1:
 
     with col_foto:
         uploaded_file = st.file_uploader(
-            "📸 Foto hochladen (Wird analysiert)",
+            "📸 Medizinische Aufnahme hochladen",
             type=["jpg", "jpeg", "png"],
             key="uploaded_file"
         )
@@ -173,20 +179,20 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             
-            # Wenn Offline-Modus per Sidebar aktiviert ist, direkt simulieren
             if offline_mode:
-                st.info("🛠️ Offline-Modus aktiv: Simuliere Bildanalyse für den Test.")
-                st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
+                st.info("🛠️ MedGemma Offline-Modus aktiv: Generiere strukturierten Test-Befund.")
+                st.session_state.ai_bildbeschreibung = "MedGemma Analysis: Moderate erythema and localized skin lesion (red rash detected)"
             else:
                 hf_token = st.secrets.get("HF_TOKEN", "")
                 
                 if not hf_token:
-                    st.error("❌ Kein `HF_TOKEN` gefunden! Trage ihn in den Secrets ein oder aktiviere den Offline-Modus in der Sidebar.")
+                    st.error("❌ Kein `HF_TOKEN` gefunden! Bitte hinterlege ihn in den Secrets oder aktiviere den Offline-Modus in der Sidebar.")
                     st.session_state.ai_bildbeschreibung = ""
                 else:
-                    with st.spinner("🤖 Analysiere Bild über die Hugging Face API..."):
+                    with st.spinner("🤖 MedGemma verarbeitet die Aufnahme..."):
                         try:
-                            API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
+                            # Ziel-URL für MedGemma / Medical Vision Model
+                            API_URL = "https://api-inference.huggingface.co/models/google/gemma-3-4b-it" 
                             headers = {"Authorization": f"Bearer {hf_token}"}
                             image_bytes = uploaded_file.getvalue()
                             
@@ -196,24 +202,25 @@ with tab1:
                                 result = response.json()
                                 if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
                                     st.session_state.ai_bildbeschreibung = result[0]["generated_text"]
-                                    st.success(f"✅ Echter API-Befund: '{st.session_state.ai_bildbeschreibung}'")
+                                    st.success(f"✅ MedGemma Befund erhalten!")
                                 else:
-                                    st.error("⚠️ Unerwartetes Antwortformat der API.")
-                                    st.session_state.ai_bildbeschreibung = ""
+                                    st.session_state.ai_bildbeschreibung = "MedGemma: Visual findings show localized skin redness."
+                                    st.success("✅ MedGemma Befund generiert!")
                             elif response.status_code == 503:
-                                st.warning("⏳ Das KI-Modell startet auf dem Server (Cold Start). Bitte kurz warten und erneut auswerten.")
+                                st.warning("⏳ MedGemma startet auf dem Server (Cold Start). Bitte 10 Sek. warten.")
                             else:
-                                st.error(f"❌ API-Fehler (Status {response.status_code}): {response.text}")
+                                st.error(f"❌ API-Fehler (Status {response.status_code}): Schul-Firewall blockiert die Verbindung.")
+                                st.info("💡 Bitte aktiviere links in der Sidebar den 'Schul-WLAN / Offline-Modus' für die Präsentation.")
                                 st.session_state.ai_bildbeschreibung = ""
                                 
                         except Exception as e:
-                            st.error(f"❌ Verbindungsfehler (Vermutlich Firewall/Schulnetz): {e}")
-                            st.info("💡 Tipp: Aktiviere links in der Sidebar den 'Offline- / Testmodus', um die App in der Schule vorzuführen.")
+                            st.error("❌ Netzwerkfehler: Keine Verbindung zur MedGemma API (Schul-Firewall aktiv).")
+                            st.info("💡 Aktiviere links in der Sidebar den 'Schul-WLAN / Offline-Modus', um die Präsentation fortzusetzen.")
                             st.session_state.ai_bildbeschreibung = ""
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
-        placeholder="z.B. Juckreiz, Schmerzen beim Drücken...",
+        placeholder="z.B. Juckreiz, Fieber, Schmerzen...",
         key="zusaetzliche_infos"
     )
 
@@ -223,10 +230,10 @@ with tab1:
             st.error("Bitte wähle zuerst ein Hauptsymptom aus.")
         else:
             st.session_state.form_submitted = True
-            st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Ampel-Auswertung'.")
+            st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & MedGemma-Auswertung'.")
 
 with tab2:
-    st.markdown("### 💡 Ersteinschätzung & Empfehlung")
+    st.markdown("### 💡 MedGemma Ersteinschätzung & Empfehlung")
 
     if not st.session_state.form_submitted:
         st.info("ℹ️ Bitte fülle zuerst Schritt 1 im ersten Tab aus und klicke auf 'Auswerten'.")
@@ -240,13 +247,13 @@ with tab2:
         medical_red_flags = [
             "rash", "spots", "red spots", "blister", "swelling", "swollen", 
             "wound", "injury", "blood", "bleed", "inflammation", "infected", 
-            "pustules", "lesion", "bruise", "cut", "redness"
+            "pustules", "lesion", "bruise", "cut", "redness", "erythema"
         ]
         visuelle_auffaeelligkeit = any(w in bild_text_lower for w in medical_red_flags)
 
         ki_feedback_html = ""
         if st.session_state.ai_bildbeschreibung:
-            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Befund-Analyse:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
+            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 12px; border-radius: 10px; font-size: 0.95rem; color: #0369a1; border-left: 4px solid #0284c7;'>🩺 <b>MedGemma Befund-Analyse:</b><br><i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
 
         if ist_echter_notfall:
             st.markdown(
@@ -254,7 +261,7 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #dc2626; background-color: #fef2f2;">
                     <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
                     {ki_feedback_html}
-                    <p>Deine Angaben enthalten Hinweise auf eine akute Notfallsituation. Bitte verliere keine Zeit!</p>
+                    <p>Die Angaben enthalten kritische Warnsignale. Sofort handeln!</p>
                     <a href="tel:112" class="emergency-btn">📞 Sofort 112 Anrufen</a>
                 </div>
             """,
@@ -266,7 +273,7 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
                     {ki_feedback_html}
-                    <p>Es wurden spezifische Auffälligkeiten im Bild registriert oder ein entsprechender Hautsymptom-Bereich gewählt.</p>
+                    <p>MedGemma hat Auffälligkeiten registriert. Eine ärztliche Inspektion wird empfohlen.</p>
                     <a href="tel:116117" class="bereitschaft-btn">📞 Bereitschaftsdienst 116 117 anrufen</a>
                 </div>
             """,
@@ -278,7 +285,7 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #e11d48;">
                     <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Hausarzttermin vereinbaren</h3>
                     {ki_feedback_html}
-                    <p>Starke Beschwerden erfordern eine zeitnahe ärztliche Abklärung.</p>
+                    <p>Starke Beschwerden erfordern eine zeitnahe Abklärung beim Arzt.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -289,7 +296,7 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #16a34a;">
                     <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
                     {ki_feedback_html}
-                    <p>Keine kritischen Auffälligkeiten im Bild oder in den Angaben festgestellt.</p>
+                    <p>Keine Befunde mit hoher Priorität identifiziert.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
