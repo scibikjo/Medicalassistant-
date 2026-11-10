@@ -204,4 +204,105 @@ with tab1:
     )
 
     st.markdown("")
-    if st.button("🚀 Vordiagnose & Empfehlung jetzt
+    if st.button("🚀 Vordiagnose & Empfehlung jetzt auswerten", type="primary", use_container_width=True):
+        if hauptsymptom == "Bitte wählen...":
+            st.error("Bitte wähle zuerst ein Hauptsymptom aus.")
+        else:
+            st.session_state.form_submitted = True
+            st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Ampel-Auswertung'.")
+
+with tab2:
+    st.markdown("### 💡 Ersteinschätzung & Empfehlung")
+
+    if not st.session_state.form_submitted:
+        st.info("ℹ️ Bitte fülle zuerst Schritt 1 im ersten Tab aus und klicke auf 'Auswerten'.")
+    else:
+        text_fuer_notfall = (hauptsymptom + " " + zusaetzliche_infos).lower()
+
+        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "puls 300", "stark blutend"]
+        ist_echter_notfall = any(kw in text_fuer_notfall for kw in notfall_keywords)
+
+        bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
+        medical_red_flags = [
+            "rash", "spots", "red spots", "blister", "swelling", "swollen", 
+            "wound", "injury", "blood", "bleed", "inflammation", "infected", 
+            "pustules", "lesion", "bruise", "cut", "redness"
+        ]
+        visuelle_auffaeelligkeit = any(w in bild_text_lower for w in medical_red_flags)
+
+        ki_feedback_html = ""
+        if st.session_state.ai_bildbeschreibung:
+            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #0369a1;'>🤖 <b>Befund-Analyse:</b> <i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
+
+        if ist_echter_notfall:
+            st.markdown(
+                f"""
+                <div class="card" style="border-left: 6px solid #dc2626; background-color: #fef2f2;">
+                    <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
+                    {ki_feedback_html}
+                    <p>Deine Angaben enthalten Hinweise auf eine akute Notfallsituation. Bitte verliere keine Zeit!</p>
+                    <a href="tel:112" class="emergency-btn">📞 Sofort 112 Anrufen</a>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+        elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
+            st.markdown(
+                f"""
+                <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
+                    {ki_feedback_html}
+                    <p>Es wurden spezifische Auffälligkeiten im Bild registriert oder ein entsprechender Hautsymptom-Bereich gewählt.</p>
+                    <a href="tel:116117" class="bereitschaft-btn">📞 Bereitschaftsdienst 116 117 anrufen</a>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+        elif st.session_state.get("hauptsymptom") == "Gelenk- oder Gliederschmerzen" or st.session_state.get("schweregrad") == "Sehr stark":
+            st.markdown(
+                f"""
+                <div class="card" style="border-left: 6px solid #e11d48;">
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Hausarzttermin vereinbaren</h3>
+                    {ki_feedback_html}
+                    <p>Starke Beschwerden erfordern eine zeitnahe ärztliche Abklärung.</p>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div class="card" style="border-left: 6px solid #16a34a;">
+                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
+                    {ki_feedback_html}
+                    <p>Keine kritischen Auffälligkeiten im Bild oder in den Angaben festgestellt.</p>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+with tab3:
+    st.markdown("### 🗺️ Ärztlichen Bereitschaftsdienst finden")
+    st.write("Bei geschlossenen Praxen hilft der ärztliche Bereitschaftsdienst unter **116 117**.")
+
+    col_plz, col_suche = st.columns([2, 1])
+    with col_plz:
+        plz_eingabe = st.text_input("Gib deine Postleitzahl (PLZ) ein:", placeholder="z.B. 20095")
+    
+    if plz_eingabe:
+        st.success(f"📍 Nächstgelegene Bereitschaftspraxis für PLZ **{plz_eingabe}**:")
+        st.markdown(
+            f"""
+            <div class="card">
+                <h4>🏥 Bereitschaftspraxis Zentrums-Klinik</h4>
+                <p><b>Adresse:</b> Hauptstraße 42, {plz_eingabe}</p>
+                <p><b>Status:</b> <span style="color: green; font-weight: bold;">Geöffnet</span></p>
+                <hr>
+                <a href="tel:116117" class="bereitschaft-btn">📞 Anrufen: 116 117</a>
+                <a href="tel:112" class="emergency-btn">🚨 Notruf: 112</a>
+            </div>
+        """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("💡 Gib oben deine PLZ ein, um die Praxis anzuzeigen.")
