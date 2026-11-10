@@ -8,7 +8,7 @@ import requests
 # 1. STREAMLIT CONFIG & VISUELLES DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – API Edition",
+    page_title="MedicalAssistant – API Edition (Variante B)",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -98,7 +98,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🩺 MedicalAssistant</h1>
-        <p>Hugging Face API Bildanalyse, Vordiagnose & Notdienst-Suche.</p>
+        <p>Hugging Face API Bildanalyse, Vordiagnose & Notdienst-Suche (Variante B).</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -155,7 +155,7 @@ with tab1:
 
     with col_foto:
         uploaded_file = st.file_uploader(
-            "📸 Foto hochladen (Wird über die Hugging Face API analysiert)",
+            "📸 Foto hochladen (Wird direkt über die Hugging Face API analysiert)",
             type=["jpg", "jpeg", "png"],
             key="uploaded_file"
         )
@@ -163,39 +163,42 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             
+            # Token aus den Streamlit Secrets laden
             hf_token = st.secrets.get("HF_TOKEN", "")
             
-            if hf_token:
-                with st.spinner("🤖 Sende Bild an Hugging Face API (kann beim Start einen Moment dauern)..."):
+            if not hf_token:
+                st.error("❌ Kein `HF_TOKEN` gefunden! Bitte trage deinen Token in den Streamlit-Secrets ein.")
+                st.session_state.ai_bildbeschreibung = ""
+            else:
+                with st.spinner("🤖 Analysiere Bild über die Hugging Face Inference API..."):
                     try:
                         API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
                         headers = {"Authorization": f"Bearer {hf_token}"}
                         image_bytes = uploaded_file.getvalue()
                         
-                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=25)
+                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=30)
                         
                         if response.status_code == 200:
                             result = response.json()
                             if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
                                 st.session_state.ai_bildbeschreibung = result[0]["generated_text"]
-                                st.success(f"API-Befund: '{st.session_state.ai_bildbeschreibung}'")
+                                st.success(f"✅ Echter API-Befund: '{st.session_state.ai_bildbeschreibung}'")
                             else:
-                                st.session_state.ai_bildbeschreibung = "a photo of a patient"
+                                st.error("⚠️ Unerwartetes Antwortformat der API erhalten.")
+                                st.session_state.ai_bildbeschreibung = ""
                         elif response.status_code == 503:
-                            st.warning("⏳ Das KI-Modell lädt auf dem Server (Cold Start). Bitte in 10 Sekunden nochmals auswerten.")
-                            st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
+                            st.warning("⏳ Das KI-Modell startet gerade auf den Servern (Cold Start). Bitte kurz warten und erneut auswerten.")
+                            st.session_state.ai_bildbeschreibung = "Modell lädt..."
                         else:
-                            st.warning(f"⚠️ API-Hinweis (Status {response.status_code}). Aktiviere Fallback-Modus.")
-                            st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
+                            st.error(f"❌ API-Fehler (Status {response.status_code}): {response.text}")
+                            st.session_state.ai_bildbeschreibung = ""
+                            
                     except requests.exceptions.Timeout:
-                        st.warning("⏱️ Zeitüberschreitung bei der API. Fallback-Modus aktiv.")
-                        st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
-                    except Exception:
-                        st.warning("ℹ️ Netzwerkfehler. Simuliere Bildanalyse für den Test.")
-                        st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
-            else:
-                st.warning("⚠️ Kein `HF_TOKEN` gefunden. Nutze Offline-Standard-Modus.")
-                st.session_state.ai_bildbeschreibung = "red spots and rash on skin"
+                        st.error("⏱️ Zeitüberschreitung: Die Hugging Face API hat nicht rechtzeitig geantwortet.")
+                        st.session_state.ai_bildbeschreibung = ""
+                    except Exception as e:
+                        st.error(f"❌ Verbindungsfehler: {e}")
+                        st.session_state.ai_bildbeschreibung = ""
 
     zusaetzliche_infos = st.text_area(
         "Zusätzliche Notizen (optional):",
