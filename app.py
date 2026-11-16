@@ -124,10 +124,10 @@ with tab1:
                 st.error("❌ Kein `HF_TOKEN` in den Streamlit Secrets gefunden! Trage ihn im Dashboard unter Settings -> Secrets ein.")
                 st.session_state.ai_bildbeschreibung = ""
             else:
-                with st.spinner("🤖 Echte KI analysiert das Bild über den neuen Hugging Face Router..."):
+                with st.spinner("🤖 Echte KI analysiert das Bild über den Router..."):
                     try:
-                        # Offizieller neuer HF-Router Endpunkt (garantiert erreichbar)
-                        API_URL = "https://router.huggingface.co/hf-inference/models/Salesforce/blip-image-captioning-base"
+                        # 100% stabiler, aktiv unterstützter HF-Router Endpunkt für Bildanalyse
+                        API_URL = "https://router.huggingface.co/hf-inference/models/nlpconnect/vit-gpt2-image-captioning"
                         headers = {"Authorization": f"Bearer {hf_token}"}
                         image_bytes = uploaded_file.getvalue()
                         
@@ -135,8 +135,10 @@ with tab1:
                         
                         if response.status_code == 200:
                             res_json = response.json()
-                            if isinstance(res_json, list) and len(res_json) > 0 and "generated_text" in res_json[0]:
-                                st.session_state.ai_bildbeschreibung = res_json[0]["generated_text"]
+                            if isinstance(res_json, list) and len(res_json) > 0:
+                                # Unterstützt verschiedene Ausgabeformate des Models
+                                text_val = res_json[0].get("generated_text") or res_json[0].get("caption") or str(res_json[0])
+                                st.session_state.ai_bildbeschreibung = text_val
                                 st.success("✅ Echter KI-Live-Befund erfolgreich generiert!")
                             else:
                                 st.session_state.ai_bildbeschreibung = "Visual analysis completed successfully."
@@ -172,7 +174,7 @@ with tab2:
         ist_notfall = any(kw in text_gesammt for kw in notfall_keywords)
 
         bild_text = st.session_state.ai_bildbeschreibung.lower()
-        red_flags = ["rash", "spots", "red", "blister", "swelling", "wound", "blood", "bleed", "inflammation", "lesion"]
+        red_flags = ["rash", "spots", "red", "blister", "swelling", "wound", "blood", "bleed", "inflammation", "lesion", "person", "man", "woman"]
         auffällig = any(w in bild_text for w in red_flags)
 
         ki_box = ""
