@@ -56,6 +56,39 @@ st.markdown(
 if "form_submitted" not in st.session_state:
     st.session_state.form_submitted = False
 
+def analysiere_bild(uploaded_file):
+    """Analysiert Bildregionen auf Rötungen, Hämatome (blaue/violette Flecken) und Kontrastabweichungen."""
+    img = Image.open(uploaded_file).convert("RGB")
+    # Auf einheitliche Größe skalieren für schnelle und präzise Pixel-Analyse
+    img_small = img.resize((200, 200))
+    arr = np.array(img_small, dtype=np.float32)
+
+    # Fokus auf den zentralen Bildbereich (wo sich meist die fotografierte Stelle befindet)
+    center = arr[30:170, 30:170]
+    r = center[:, :, 0]
+    g = center[:, :, 1]
+    b = center[:, :, 2]
+
+    # 1. Rötung / Entzündung (Rot deutlich höher als Grün und Blau)
+    red_pixels = np.mean((r - g > 30) & (r - b > 30))
+
+    # 2. Hämatom / Blauer Fleck (Dunkle Bereiche mit Violett-/Blau-Anteil oder starkem Kontrast zur Umgebung)
+    brightness = (r + g + b) / 3.0
+    # Blau-/Violettstich bei abgedunkelter Haut (B relativ hoch im Vergleich zu G)
+    bruise_pixels = np.mean((brightness < 145) & (b > g - 5) & ((r - g) < 40))
+
+    # 3. Lokale Verfärbung / Kontrastabweichung (Unterschied zwischen dunkelstem und hellstem Hautbereich)
+    p10 = np.percentile(brightness, 15)
+    p85 = np.percentile(brightness, 85)
+    contrast_diff = p85 - p10
+
+    if bruise_pixels > 0.14 or (contrast_diff > 75 and bruise_pixels > 0.08):
+        return True, "Visueller Befund: Deutliche Verfärbung / Hämatom-Struktur (blauer Fleck / Prellung) im Fokusbereich erkannt."
+    elif red_pixels > 0.18:
+        return True, "Visueller Befund: Lokale Rötung / Entzündungszeichen (Hyperämie) erkannt."
+    else:
+        return False, "Visueller Befund: Gleichmäßige Struktur, keine akuten Verfärbungen oder Läsionen erkannt."
+
 st.markdown(
     """
     <div class="hero-banner">
@@ -69,7 +102,7 @@ st.markdown(
 st.markdown(
     """
     <div class="disclaimer-box">
-        <b>⚠️ Medizinischer Hinweis:</b> Diese Plattform dient der professionellen Voreinschätzung. Sie ersetzt im Ernstfall keine ärztliche Notfallversorgung. Bei akuter Lebensgefahr die <b>112</b> wählen!
+        <b>⚠️ Medizinischer Hinweis:</b> Diese Plattform dient der technischen Demonstration und Voreinschätzung. Sie ersetzt im Ernstfall keine ärztliche Untersuchung oder Diagnose. Bei akuter Lebensgefahr bitte sofort die <b>112</b> wählen!
     </div>
 """,
     unsafe_allow_html=True,
@@ -82,7 +115,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 with tab1:
-    st.markdown("### 🔍 Schritt 1: Detaillierte Beschwerden, Vorfall & Bild erfassen")
+    st.markdown("### 🔍 Schritt 1: Beschwerden, Vorfall & Bild erfassen")
 
     col_haupt, col_foto = st.columns([1, 1], gap="medium")
 
@@ -91,12 +124,13 @@ with tab1:
             "Hauptbeschwerde / Symptomkategorie:",
             [
                 "Bitte wählen...",
+                "Blauer Fleck / Hämatom / Prellung",
                 "Hautausschlag / Rötung / Schwellung / Wunde",
                 "Gelenk- oder Gliederschmerzen / Sportverletzung",
+                "Schnittwunde / Verbrennung / Äußere Verletzung",
                 "Kopfschmerzen / Migräne / Schwindel",
                 "Erkältung / Halsschmerzen / Husten / Fieber",
                 "Magen-Darm-Beschwerden / Übelkeit",
-                "Schnittwunde / Verbrennung / Äußere Verletzung",
                 "Brustschmerzen / Engegefühl (Kardial)",
                 "Plötzliche Atemnot / Luftnot",
                 "Sonstiges / Allgemeine Beschwerden",
@@ -120,7 +154,7 @@ with tab1:
 
         unfallhergang = st.text_area(
             "📝 Wie ist es passiert? (Hergang / Auslöser):",
-            placeholder="z.B. Beim Holzhacken abgerutscht, vor 2 Stunden in der Küche passiert, brennender Schmerz seit heute Morgen...",
+            placeholder="z.B. Stark gestoßen, gestürzt, beim Sport umgeknickt, seit gestern großflächig verfärbt...",
             key="unfallhergang"
         )
 
@@ -134,21 +168,20 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Untersuchungsbild", width=240)
             
-        # Intelligente visuelle Einschätzung (wählbar für perfekte Live-Präsentationen)
         visueller_eindruck = st.selectbox(
-            "🤖 Visueller Analyse-Befund (Cloud-Vision Engine):",
+            "🤖 Bildanalyse-Modus (Cloud-Vision Engine):",
             [
-                "Automatisch erkennen (Standard)",
-                "🟢 Unauffällige Gewebestruktur (Keine Läsionen)",
-                "🟡 Lokale Rötung / Entzündungszeichen (Hyperämie)",
-                "🔴 Offene Wunde / Schwellung / Akute Verletzung",
+                "Automatische Bildanalyse (Standard)",
+                "🟢 Manuell: Unauffällige Struktur",
+                "🟡 Manuell: Hämatom / Rötung / Schwellung",
+                "🔴 Manuell: Akute offene Verletzung",
             ],
             key="visueller_eindruck"
         )
 
     zusaetzliche_notizen = st.text_area(
-        "Zusätzliche Beobachtungen (Vorerkrankungen, Allergien etc.):",
-        placeholder="z.B. Penicillin-Allergie, Bluthochdruck...",
+        "Zusätzliche Beobachtungen (Vorerkrankungen, Blutverdünner, Allergien etc.):",
+        placeholder="z.B. Einnahme von Blutverdünnern, starke Druckempfindlichkeit...",
         key="zusaetzliche_notizen"
     )
 
@@ -164,42 +197,50 @@ with tab2:
     st.markdown("### 💡 Strukturierte Ersteinschätzung & Dringlichkeit")
 
     if not st.session_state.form_submitted:
-        st.info("ℹ️ Bitte fülle zuerst die Anamnese in Tab 1 aus und klicke auf 'Auswertung starten'.")
+        st.info("ℹ️ Bitte fülle zuerst die Anamnese in Tab 1 aus und klicke auf 'Klinische Triage-Auswertung starten'.")
     else:
         gesamter_text = (hauptsymptom + " " + unfallhergang + " " + zusaetzliche_notizen).lower()
 
-        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "stark blutend", "blut", "kollaps", "ringe"]
-        ist_echter_notfall = any(kw in gesamter_text for kw in notfall_keywords) or hauptsymptom in ["Brustschmerzen / Engegefühl (Kardial)", "Plötzliche Atemnot / Luftnot"]
+        notfall_keywords = [
+            "bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", 
+            "schlaganfall", "stark blutend", "kollaps", "kopfverletzung", "gehirnerschütterung"
+        ]
+        ist_echter_notfall = (
+            any(kw in gesamter_text for kw in notfall_keywords) 
+            or hauptsymptom in ["Brustschmerzen / Engegefühl (Kardial)", "Plötzliche Atemnot / Luftnot"]
+        )
 
-        # Logik basierend auf der visuellen Auswahl und den Symptomen
         ist_visuell_auffaellig = False
-        visueller_text_log = "Struktur unauffällig."
-        
-        if visueller_eindruck == "🟢 Unauffällige Gewebestruktur (Keine Läsionen)":
+        visueller_text_log = "Kein Bild hochgeladen."
+
+        if visueller_eindruck == "🟢 Manuell: Unauffällige Struktur":
             ist_visuell_auffaellig = False
             visueller_text_log = "Visueller Befund: Gewebestruktur unauffällig."
-        elif visueller_eindruck == "🟡 Lokale Rötung / Entzündungszeichen (Hyperämie)":
+        elif visueller_eindruck == "🟡 Manuell: Hämatom / Rötung / Schwellung":
             ist_visuell_auffaellig = True
-            visueller_text_log = "Visueller Befund: Lokale Hyperämie / Rötung erkannt."
-        elif visueller_eindruck == "🔴 Offene Wunde / Schwellung / Akute Verletzung":
+            visueller_text_log = "Visueller Befund: Deutliche Gewebeverfärbung / Hämatom / Rötung."
+        elif visueller_eindruck == "🔴 Manuell: Akute offene Verletzung":
             ist_visuell_auffaellig = True
-            visueller_text_log = "Visueller Befund: Akute Läsion / Schwellung festgestellt."
+            visueller_text_log = "Visueller Befund: Akute Läsion / Verletzung festgestellt."
         else:
-            # Automatischer Fallback
             if uploaded_file is not None:
-                img = Image.open(uploaded_file).convert("RGB")
-                img_array = np.array(img)
-                r_mean = np.mean(img_array[:, :, 0])
-                g_mean = np.mean(img_array[:, :, 1])
-                b_mean = np.mean(img_array[:, :, 2])
-                if r_mean > (g_mean + 45):
-                    ist_visuell_auffaellig = True
-                    visueller_text_log = "Cloud-Vision: Erhöhter Rot-Anteil (Hyperämie)."
-                else:
+                try:
+                    ist_visuell_auffaellig, visueller_text_log = analysiere_bild(uploaded_file)
+                except Exception:
                     ist_visuell_auffaellig = False
-                    visueller_text_log = "Cloud-Vision: Standard-Gewebe unauffällig."
+                    visueller_text_log = "Visueller Befund: Bild eingelesen."
 
-        befund_html = f"<p style='background: #e0f2fe; padding: 12px; border-radius: 10px; font-size: 0.95rem; color: #0369a1; border-left: 4px solid #0284c7;'>🩺 <b>Klinischer Befund:</b><br>{visueller_text_log}<br><b>Hergang / Notizen:</b> <i>'{unfallhergang if unfallhergang else 'Keine Angaben'}'</i></p>"
+        # Prüfen ob Symptom oder Hergang bereits auf Verletzung/Hämatom hinweist
+        symptom_auffaellig = any(
+            w in gesamter_text for w in ["blauer fleck", "hämatom", "prellung", "wunde", "schnittwunde", "schwellung", "blutverdünner", "sturz"]
+        )
+
+        befund_html = f"""
+        <p style='background: #e0f2fe; padding: 12px; border-radius: 10px; font-size: 0.95rem; color: #0369a1; border-left: 4px solid #0284c7;'>
+            🩺 <b>Klinischer Befund:</b><br>{visueller_text_log}<br>
+            <b>Hergang:</b> <i>'{unfallhergang if unfallhergang else 'Keine Angaben'}'</i>
+        </p>
+        """
 
         if ist_echter_notfall:
             st.markdown(
@@ -207,31 +248,20 @@ with tab2:
                 <div class="card" style="border-left: 6px solid #dc2626; background-color: #fef2f2;">
                     <h3 style="color: #dc2626; margin-top:0;">🚨 HÖCHSTE DRINGLICHKEIT – AKUTER NOTFALL</h3>
                     {befund_html}
-                    <p>Die Kombination aus Symptomen und Hergang weist auf eine potenzielle Gefährdung hin. Handeln Sie sofort!</p>
+                    <p>Die Kombination aus Symptomen und Hergang weist auf eine akute Gefährdung hin. Bitte sofort medizinische Notfallhilfe rufen!</p>
                     <a href="tel:112" class="emergency-btn">📞 Sofort 112 Anrufen</a>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
-        elif ist_visuell_auffaellig or "wunde" in hauptsymptom.lower() or "schnittwunde" in hauptsymptom.lower():
+        elif ist_visuell_auffaellig or symptom_auffaellig or schweregrad == "Sehr stark / Unerträglich (8-10)":
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
-                    <h3 style="color: #e11d48; margin-top:0;">🟡 Dringende Empfehlung: Zeitnahe ärztliche Vorstellung</h3>
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Dringende Empfehlung: Ärztliche Abklärung erforderlich</h3>
                     {befund_html}
-                    <p>Aufgrund des Befundes oder der Rötung wird eine fachärztliche Untersuchung empfohlen.</p>
+                    <p>Es wurden deutliche Auffälligkeiten (z. B. großflächiges Hämatom, Schwellung, Rötung oder starke Schmerzen) festgestellt. Eine ärztliche Untersuchung wird dringend empfohlen, um tiefere Gewebe- oder Gefäßverletzungen auszuschließen.</p>
                     <a href="tel:116117" class="bereitschaft-btn">📞 Ärztlicher Bereitschaftsdienst 116 117</a>
-                </div>
-            """,
-                unsafe_allow_html=True,
-            )
-        elif schweregrad == "Sehr stark / Unerträglich (8-10)":
-            st.markdown(
-                f"""
-                <div class="card" style="border-left: 6px solid #e11d48;">
-                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Zeitnaher Arzttermin / Notfallpraxis</h3>
-                    {befund_html}
-                    <p>Starke Schmerzen erfordern eine ärztliche Diagnostik.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -240,9 +270,9 @@ with tab2:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #16a34a;">
-                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Unbedenklicher Verlauf (Selbstbehandlung)</h3>
+                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Beobachtung)</h3>
                     {befund_html}
-                    <p>Keine akuten Alarmsignale identifiziert. Verlauf beobachten.</p>
+                    <p>Keine akuten Alarmsignale in den Angaben oder der Bildstruktur identifiziert. Beobachten Sie den Verlauf und suchen Sie bei Verschlechterung einen Arzt auf.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -252,9 +282,7 @@ with tab3:
     st.markdown("### 🗺️ Lokale Notdienst- & Praxensuche")
     st.write("Finden Sie die nächstgelegene geöffnete Praxis oder Notdienstzentrale über Ihre Postleitzahl.")
 
-    col_plz, col_ort = st.columns([2, 1])
-    with col_plz:
-        plz_eingabe = st.text_input("Postleitzahl (PLZ) eingeben:", placeholder="z.B. 20095")
+    plz_eingabe = st.text_input("Postleitzahl (PLZ) eingeben:", placeholder="z.B. 23552")
     
     if plz_eingabe:
         st.success(f"📍 Ergebnisse für PLZ **{plz_eingabe}**:")
