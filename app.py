@@ -1,17 +1,29 @@
 
+# ============================================================
+# MEDICALASSISTANT PRO
+# TEIL 1 VON 4
+# Konfiguration, Imports, Design und Konstanten
+# ============================================================
+
 import io
 import os
 import re
-import html
+import base64
 import logging
+import html
 
+from typing import Optional
+
+import requests
 import numpy as np
 import streamlit as st
-from PIL import Image, ImageOps, UnidentifiedImageError
 
-# =====================================================
-# 1. KONFIGURATION
-# =====================================================
+from PIL import Image, ImageOps, ImageFilter
+
+
+# ============================================================
+# 1. STREAMLIT KONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="MedicalAssistant Pro",
@@ -20,292 +32,351 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-logging.basicConfig(level=logging.INFO)
+
+# ============================================================
+# 2. LOGGING
+# ============================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 logger = logging.getLogger("MedicalAssistant")
 
-MAX_IMAGE_SIZE_MB = 8
-MAX_IMAGE_PIXELS = 20_000_000
-HF_TIMEOUT = 25
 
-DEFAULT_HF_MODEL = "Salesforce/blip-image-captioning-base"
+# ============================================================
+# 3. HUGGING FACE KONFIGURATION
+# ============================================================
 
+APP_NAME = "MedicalAssistant Pro"
 
-def get_secret(name, default=""):
-    try:
-        value = st.secrets.get(name, None)
-        if value:
-            return str(value).strip()
-    except Exception:
-        pass
+HF_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
 
-    return os.getenv(name, default).strip()
+HF_API_URL = (
+    "https://router.huggingface.co/v1/chat/completions"
+)
 
+MAX_IMAGE_SIZE = 8 * 1024 * 1024
 
-HF_TOKEN = get_secret("HF_TOKEN")
-HF_MODEL = get_secret("HF_MODEL", DEFAULT_HF_MODEL)
+MAX_IMAGE_DIMENSION = 1600
 
-Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+REQUEST_TIMEOUT = (10, 90)
 
 
-# =====================================================
-# 2. DESIGN
-# =====================================================
+# Token aus Streamlit Secrets oder Umgebungsvariable laden
 
-st.markdown("""
-<style>
-@import url(
-'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'
-);
+try:
+    HF_TOKEN = st.secrets.get("HF_TOKEN", "")
+except Exception:
+    HF_TOKEN = os.getenv("HF_TOKEN", "")
 
-html, body, [class*="css"], .stApp {
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
-    background-color: #f8fafc !important;
-    color: #0f172a !important;
-}
+if not isinstance(HF_TOKEN, str):
+    HF_TOKEN = ""
 
-#MainMenu, footer {
-    visibility: hidden !important;
-}
 
-.block-container {
-    padding-top: 1.5rem !important;
-    padding-bottom: 4rem !important;
-    max-width: 1100px !important;
-}
+# ============================================================
+# 4. DESIGN / CSS
+# ============================================================
 
-.hero-banner {
-    background: linear-gradient(
-        135deg, #0284c7 0%, #0369a1 50%, #0f766e 100%
+st.markdown(
+    """
+    <style>
+
+    @import url(
+        'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'
     );
-    border-radius: 20px;
-    padding: 28px 36px;
-    color: white;
-    margin-bottom: 20px;
-}
 
-.hero-banner h1 {
-    font-weight: 800;
-    font-size: 2.2rem;
-    color: white !important;
-    margin: 0;
-}
+    html, body, [class*="css"], .stApp {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+    }
 
-.hero-banner p {
-    color: #e0f2fe;
-    margin-top: 6px;
-}
+    #MainMenu, footer {
+        visibility: hidden !important;
+    }
 
-.disclaimer-box {
-    background: #fef3c7;
-    border-left: 5px solid #d97706;
-    padding: 14px 18px;
-    border-radius: 10px;
-    color: #92400e;
-    margin-bottom: 20px;
-}
+    .block-container {
+        max-width: 1100px !important;
+        padding-top: 1.5rem !important;
+        padding-bottom: 4rem !important;
+    }
 
-.card {
-    background: white;
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 4px 12px rgba(0,0,0,.03);
-    margin-bottom: 18px;
-}
+    .hero {
+        background: linear-gradient(
+            135deg,
+            #0284c7,
+            #0369a1,
+            #0f766e
+        );
 
-.befund-box {
-    background: #e0f2fe;
-    padding: 14px;
-    border-radius: 10px;
-    color: #0369a1;
-    border-left: 4px solid #0284c7;
-    margin-bottom: 12px;
-}
+        border-radius: 20px;
+        padding: 30px;
+        color: white;
+        margin-bottom: 20px;
 
-.emergency-btn {
-    display: inline-block;
-    background: #dc2626;
-    color: white !important;
-    font-weight: 700;
-    padding: 12px 20px;
-    border-radius: 10px;
-    text-decoration: none;
-    margin-top: 8px;
-}
+        box-shadow:
+            0 10px 25px rgba(2,132,199,.2);
+    }
 
-.bereitschaft-btn {
-    display: inline-block;
-    background: #0284c7;
-    color: white !important;
-    font-weight: 700;
-    padding: 12px 20px;
-    border-radius: 10px;
-    text-decoration: none;
-    margin-top: 8px;
-}
-</style>
-""", unsafe_allow_html=True)
+    .hero h1 {
+        color: white !important;
+        font-size: 2.2rem;
+        font-weight: 800;
+        margin: 0;
+    }
+
+    .hero p {
+        color: #e0f2fe;
+        margin-bottom: 0;
+    }
+
+    .disclaimer {
+        background: #fef3c7;
+        border-left: 5px solid #d97706;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        color: #92400e;
+    }
+
+    .card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 22px;
+        margin-bottom: 15px;
+    }
+
+    .footer {
+        text-align: center;
+        color: #64748b;
+        font-size: .85rem;
+        padding: 20px;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
-# =====================================================
-# 3. KONSTANTEN
-# =====================================================
+# ============================================================
+# 5. SYMPTOM-KONSTANTEN
+# ============================================================
 
-SYMPTOM_OPTIONEN = [
+SYMPTOME = [
+
     "Bitte wählen...",
+
     "Blauer Fleck / Hämatom / Prellung",
+
     "Hautausschlag / Rötung / Schwellung / Wunde",
+
     "Gelenk- oder Gliederschmerzen / Sportverletzung",
+
     "Schnittwunde / Verbrennung / Äußere Verletzung",
+
     "Kopfschmerzen / Migräne / Schwindel",
+
     "Erkältung / Halsschmerzen / Husten / Fieber",
+
     "Magen-Darm-Beschwerden / Übelkeit",
-    "Brustschmerzen / Engegefühl (Kardial)",
+
+    "Brustschmerzen / Engegefühl",
+
     "Plötzliche Atemnot / Luftnot",
+
     "Sonstiges / Allgemeine Beschwerden",
+
 ]
 
-KATEGORIEN_NOTFALL = {
-    "Brustschmerzen / Engegefühl (Kardial)",
-    "Plötzliche Atemnot / Luftnot",
-}
 
-KATEGORIEN_VERLETZUNG = {
-    "Blauer Fleck / Hämatom / Prellung",
-    "Hautausschlag / Rötung / Schwellung / Wunde",
-    "Gelenk- oder Gliederschmerzen / Sportverletzung",
-    "Schnittwunde / Verbrennung / Äußere Verletzung",
-}
+# ============================================================
+# 6. DAUER UND SCHWEREGRAD
+# ============================================================
 
-DAUER_OPTIONEN = [
+DAUER = [
+
     "Wenige Minuten / Akut",
+
     "Wenige Stunden",
+
     "1 bis 2 Tage",
+
     "3 bis 5 Tage",
+
     "Länger als eine Woche",
+
 ]
 
-SCHWERE_OPTIONEN = [
+
+SCHWERE = [
+
     "Leicht (1-3)",
+
     "Mäßig (4-7)",
+
     "Sehr stark / Unerträglich (8-10)",
+
 ]
 
-MODUS_AUTO = "Automatische KI-Bildbeschreibung"
-MODUS_OK = "Manuell: Unauffällige Struktur"
-MODUS_AUFFAELLIG = "Manuell: Auffällige Struktur"
-MODUS_OFFEN = "Manuell: Akute offene Verletzung"
 
-MODUS_OPTIONEN = [
-    MODUS_AUTO,
-    MODUS_OK,
-    MODUS_AUFFAELLIG,
-    MODUS_OFFEN,
+# ============================================================
+# 7. ANALYSE-MODI
+# ============================================================
+
+MODI = [
+
+    "Automatische Bildbeschreibung",
+
+    "Manuelle Dokumentation",
+
 ]
+
+
+# ============================================================
+# 8. KATEGORIEN
+# ============================================================
+
+NOTFALL_KATEGORIEN = {
+
+    "Brustschmerzen / Engegefühl",
+
+    "Plötzliche Atemnot / Luftnot",
+
+}
+
+
+VERLETZUNGEN = {
+
+    "Blauer Fleck / Hämatom / Prellung",
+
+    "Hautausschlag / Rötung / Schwellung / Wunde",
+
+    "Gelenk- oder Gliederschmerzen / Sportverletzung",
+
+    "Schnittwunde / Verbrennung / Äußere Verletzung",
+
+}
+
+
+# ============================================================
+# 9. NOTFALL-SCHLÜSSELWÖRTER
+# ============================================================
 
 NOTFALL_KEYWORDS = [
-    "bewusstlos", "ohnmacht", "atemnot", "luftnot",
-    "brustschmerz", "brustenge", "schlaganfall",
-    "lähmung", "sprachstörung", "krampfanfall",
-    "starke blutung", "herzinfarkt", "anaphylax",
-    "erstick",
+
+    "bewusstlos",
+
+    "atemnot",
+
+    "luftnot",
+
+    "brustschmerz",
+
+    "brustenge",
+
+    "schlaganfall",
+
+    "halbseitig gelähmt",
+
+    "sprachstörung",
+
+    "krampfanfall",
+
+    "starke blutung",
+
+    "blutet stark",
+
+    "herzinfarkt",
+
+    "anaphylaxie",
+
+    "erstickung",
+
 ]
 
-AUFFAELLIG_KEYWORDS = [
-    "blauer fleck", "hämatom", "prellung",
-    "wunde", "schnitt", "schwellung",
-    "geschwollen", "blutverdünner",
-    "marcumar", "xarelto", "eliquis",
-    "sturz", "gestürzt", "eiter",
-    "überwärmt", "fieber", "bluterguss",
-    "umgeknickt", "verbrenn",
-]
+
+# ============================================================
+# ENDE TEIL 1
+# ============================================================
+
+# ============================================================
+# MEDICALASSISTANT PRO
+# TEIL 2 VON 4
+# Bildverarbeitung und Hugging Face API
+# ============================================================
 
 
-# =====================================================
-# 4. HILFSFUNKTIONEN
-# =====================================================
+# ============================================================
+# 10. HILFSFUNKTIONEN
+# ============================================================
 
-def esc(value):
-    return html.escape(str(value or ""), quote=True)
+def normalisiere(text: str) -> str:
+    """Normalisiert Texteingaben."""
 
-
-def normalize_text(value):
-    value = (value or "").lower()
-    value = value.replace("ä", "ae")
-    value = value.replace("ö", "oe")
-    value = value.replace("ü", "ue")
-    value = value.replace("ß", "ss")
-    return re.sub(r"\s+", " ", value).strip()
+    return (text or "").strip().lower()
 
 
-def hat_keyword(text, keyword):
-    text = normalize_text(text)
-    keyword = normalize_text(keyword)
+def esc(text: str) -> str:
+    """Sicheres Maskieren von HTML."""
 
-    for match in re.finditer(re.escape(keyword), text):
-        davor = text[max(0, match.start() - 35):match.start()]
-
-        if re.search(
-            r"\b(kein|keine|keinen|keiner|keinem|ohne|nicht|nie)\b"
-            r"(?:\s+\w+){0,3}\s*$",
-            davor,
-        ):
-            continue
-
-        return True
-
-    return False
+    return html.escape(str(text or ""), quote=True)
 
 
-def finde_keywords(text, keywords):
-    return [
-        keyword
-        for keyword in keywords
-        if hat_keyword(text, keyword)
-    ]
+# ============================================================
+# 11. BILDVALIDIERUNG
+# ============================================================
 
+def validiere_bild(data: bytes):
 
-# =====================================================
-# 5. BILDVALIDIERUNG
-# =====================================================
+    if not data:
+        return False, "Keine Bilddaten vorhanden."
 
-def validiere_bild(datei_bytes):
-
-    if not datei_bytes:
-        return False, "Die Bilddatei ist leer."
-
-    if len(datei_bytes) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
-        return False, "Das Bild überschreitet 8 MB."
+    if len(data) > MAX_IMAGE_SIZE:
+        return False, "Das Bild überschreitet die maximale Größe von 8 MB."
 
     try:
-        with Image.open(io.BytesIO(datei_bytes)) as img:
-            img.verify()
 
-        with Image.open(io.BytesIO(datei_bytes)) as img:
-            width, height = img.size
-
-            if width < 32 or height < 32:
-                return False, "Das Bild ist zu klein."
-
-            if width * height > MAX_IMAGE_PIXELS:
-                return False, "Zu viele Bildpixel."
+        with Image.open(io.BytesIO(data)) as img:
 
             if img.format not in ("JPEG", "PNG"):
-                return False, "Nur JPG und PNG sind erlaubt."
+                return False, "Nur JPG- und PNG-Dateien sind erlaubt."
+
+            img.verify()
 
         return True, "Bild erfolgreich validiert."
 
     except Exception:
-        return False, "Bild beschädigt oder nicht lesbar."
+
+        logger.exception("Bildvalidierung fehlgeschlagen")
+
+        return False, "Die Bilddatei ist beschädigt oder ungültig."
 
 
-def bereite_bild_vor(datei_bytes):
+# ============================================================
+# 12. BILD VORBEREITEN
+# ============================================================
 
-    with Image.open(io.BytesIO(datei_bytes)) as original:
+def bereite_bild_vor(data: bytes) -> bytes:
+
+    """
+    Normalisiert das Bild.
+    Entfernt EXIF-Metadaten.
+    Konvertiert das Bild in JPEG.
+    """
+
+    with Image.open(io.BytesIO(data)) as original:
+
         img = ImageOps.exif_transpose(original)
+
         img = img.convert("RGB")
-        img.thumbnail((1024, 1024))
+
+        img.thumbnail(
+            (MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION)
+        )
 
         output = io.BytesIO()
 
@@ -319,194 +390,380 @@ def bereite_bild_vor(datei_bytes):
         return output.getvalue()
 
 
-# =====================================================
-# 6. HUGGING FACE API
-# =====================================================
+# ============================================================
+# 13. HUGGING FACE VISION API
+# ============================================================
 
-@st.cache_resource(show_spinner=False)
-def lade_hf_client(token, timeout):
-
-    if not token:
-        return None
-
-    from huggingface_hub import InferenceClient
-
-    return InferenceClient(
-        provider="auto",
-        api_key=token,
-        timeout=timeout,
-    )
-
-
-def hf_bildanalyse(datei_bytes):
+def hf_bildanalyse(bild_bytes: bytes) -> dict:
 
     result = {
+
         "success": False,
+
         "text": "",
+
         "error": "",
+
+        "source": "Hugging Face",
+
     }
 
+    # Token prüfen
+
     if not HF_TOKEN:
-        result["error"] = "Kein HF Token konfiguriert."
+
+        result["error"] = (
+            "HF_TOKEN fehlt. Bitte Hugging Face Token konfigurieren."
+        )
+
         return result
 
     try:
-        client = lade_hf_client(HF_TOKEN, HF_TIMEOUT)
 
-        if client is None:
-            result["error"] = "Client nicht verfügbar."
+        # Bild in Base64 umwandeln
+
+        image_base64 = base64.b64encode(
+            bild_bytes
+        ).decode("ascii")
+
+        image_url = (
+            "data:image/jpeg;base64,"
+            + image_base64
+        )
+
+        # API Header
+
+        headers = {
+
+            "Authorization": f"Bearer {HF_TOKEN}",
+
+            "Content-Type": "application/json",
+
+        }
+
+        # API Anfrage
+
+        payload = {
+
+            "model": HF_MODEL,
+
+            "messages": [
+
+                {
+
+                    "role": "user",
+
+                    "content": [
+
+                        {
+
+                            "type": "text",
+
+                            "text": (
+
+                                "Beschreibe dieses Bild objektiv auf Deutsch. "
+
+                                "Nenne sichtbare Farben, Formen, Oberflächen "
+                                "und die Bildqualität. "
+
+                                "Stelle keine medizinische Diagnose. "
+
+                                "Behaupte nicht, dass etwas harmlos ist. "
+
+                                "Gib keine medizinische Entwarnung."
+
+                            ),
+
+                        },
+
+                        {
+
+                            "type": "image_url",
+
+                            "image_url": {
+
+                                "url": image_url
+
+                            },
+
+                        },
+
+                    ],
+
+                }
+
+            ],
+
+            "max_tokens": 250,
+
+            "temperature": 0.1,
+
+            "stream": False,
+
+        }
+
+        response = requests.post(
+
+            HF_API_URL,
+
+            headers=headers,
+
+            json=payload,
+
+            timeout=REQUEST_TIMEOUT,
+
+        )
+
+        # HTTP Status kontrollieren
+
+        if response.status_code != 200:
+
+            result["error"] = (
+
+                f"HTTP {response.status_code}: "
+                + response.text[:400]
+
+            )
+
+            logger.error(
+                "Hugging Face Fehler: %s",
+                result["error"]
+            )
+
             return result
 
-        response = client.image_to_text(
-            datei_bytes,
-            model=HF_MODEL,
-        )
+        # JSON auslesen
 
-        description = getattr(
-            response,
-            "generated_text",
-            None,
-        )
+        data = response.json()
 
-        if not description and isinstance(response, dict):
-            description = response.get("generated_text", "")
+        choices = data.get("choices")
 
-        if not description and isinstance(response, str):
-            description = response
+        if not isinstance(choices, list) or not choices:
 
-        description = str(description or "").strip()
+            result["error"] = (
+                "API lieferte keine gültigen Ergebnisse."
+            )
 
-        if not description:
-            result["error"] = "Keine Beschreibung erhalten."
+            return result
+
+        message = choices[0].get("message", {})
+
+        content = message.get("content", "")
+
+        # Unterschiedliche Antwortformate abfangen
+
+        if isinstance(content, list):
+
+            content = " ".join(
+
+                item.get("text", "")
+
+                for item in content
+
+                if isinstance(item, dict)
+
+            )
+
+        if not isinstance(content, str) or not content.strip():
+
+            result["error"] = (
+                "Die API lieferte keinen Beschreibungstext."
+            )
+
             return result
 
         result["success"] = True
-        result["text"] = description[:3000]
+
+        result["text"] = content.strip()
 
         return result
 
+    # --------------------------------------------------------
+    # FEHLERBEHANDLUNG
+    # --------------------------------------------------------
+
+    except requests.exceptions.Timeout:
+
+        result["error"] = (
+            "Zeitüberschreitung bei Hugging Face."
+        )
+
+    except requests.exceptions.ConnectionError:
+
+        result["error"] = (
+            "Keine Verbindung zu Hugging Face möglich."
+        )
+
+    except requests.exceptions.RequestException as exc:
+
+        result["error"] = (
+            f"HTTP-Anfrage fehlgeschlagen: {type(exc).__name__}"
+        )
+
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+
+        result["error"] = (
+            f"Ungültige API-Antwort: {type(exc).__name__}"
+        )
+
     except Exception as exc:
-        logger.warning(
-            "HF API Fehler: %s",
-            type(exc).__name__,
+
+        logger.exception(
+            "Unerwarteter Hugging Face Fehler"
         )
 
         result["error"] = (
-            "Hugging Face nicht erreichbar: "
-            + type(exc).__name__
+            f"{type(exc).__name__}: {str(exc)[:200]}"
         )
 
-        return result
+    return result
 
-# =====================================================
-# 7. LOKALER BILDANALYSE-FALLBACK
-# =====================================================
 
-def lokaler_bild_fallback(datei_bytes):
+# ============================================================
+# 14. LOKALER BILDFALLBACK
+# ============================================================
+
+def lokaler_fallback(bild_bytes: bytes) -> dict:
 
     result = {
+
         "success": False,
-        "source": "Lokaler Fallback",
+
         "text": "",
-        "error": "",
+
+        "details": "",
+
     }
 
     try:
-        with Image.open(io.BytesIO(datei_bytes)) as original:
+
+        with Image.open(io.BytesIO(bild_bytes)) as original:
 
             img = ImageOps.exif_transpose(original)
+
             img = img.convert("RGB")
+
             img.thumbnail((320, 320))
 
-            arr = np.asarray(img, dtype=np.float32)
+            gray = np.asarray(
 
-        if arr.ndim != 3 or arr.shape[2] != 3:
-            raise ValueError("Ungültige Bilddimensionen")
+                img.convert("L"),
 
-        gray = (
-            0.299 * arr[:, :, 0]
-            + 0.587 * arr[:, :, 1]
-            + 0.114 * arr[:, :, 2]
-        )
+                dtype=np.float32,
 
-        brightness = float(np.mean(gray))
+            )
+
+        # Helligkeit
+
+        brightness = float(gray.mean())
+
+        # Technisches Schärfemaß
 
         sharpness = float(
+
             np.var(np.diff(gray, axis=0))
+
             + np.var(np.diff(gray, axis=1))
+
         )
 
+        # Qualität klassifizieren
+
         if brightness < 30:
+
             quality = "Sehr dunkel"
 
         elif brightness > 225:
+
             quality = "Stark überbelichtet"
 
         elif sharpness < 15:
+
             quality = "Möglicherweise unscharf"
 
         else:
+
             quality = "Technisch grundsätzlich lesbar"
 
         result["success"] = True
 
         result["text"] = (
+
             "Lokale technische Bildprüfung abgeschlossen. "
-            f"Helligkeit: {brightness:.1f}/255. "
-            f"Schärfemaß: {sharpness:.1f}. "
-            f"Qualität: {quality}. "
+
             "Eine medizinische Beurteilung ist nicht möglich."
+
         )
 
-        return result
+        result["details"] = (
 
-    except Exception as exc:
+            f"Helligkeit: {brightness:.1f}/255 | "
 
-        logger.warning(
-            "Fallback fehlgeschlagen: %s",
-            type(exc).__name__,
+            f"Schärfemaß: {sharpness:.1f} | "
+
+            f"Qualität: {quality}"
+
         )
-
-        result["error"] = type(exc).__name__
-
-        result["text"] = (
-            "Das Bild konnte lokal nicht verarbeitet werden."
-        )
-
-        return result
-
-
-# =====================================================
-# 8. ZENTRALE BILDANALYSE
-# =====================================================
-
-def analysiere_bild(datei_bytes):
-
-    result = {
-        "success": False,
-        "unsicher": True,
-        "auffaellig": False,
-        "text": "",
-        "details": "",
-        "source": "",
-        "error": "",
-    }
-
-    valid, message = validiere_bild(datei_bytes)
-
-    if not valid:
-        result["text"] = message
-        result["error"] = message
-        return result
-
-    try:
-        prepared = bereite_bild_vor(datei_bytes)
 
     except Exception:
-        logger.exception("Bildvorbereitung fehlgeschlagen")
+
+        logger.exception(
+            "Lokaler Bildfallback fehlgeschlagen"
+        )
 
         result["text"] = (
-            "Das Bild konnte nicht vorbereitet werden."
+            "Lokale Bildverarbeitung fehlgeschlagen."
+        )
+
+    return result
+
+
+# ============================================================
+# 15. ZENTRALE BILDANALYSE
+# ============================================================
+
+def analysiere_bild(bild_bytes: bytes) -> dict:
+
+    result = {
+
+        "success": False,
+
+        "text": "",
+
+        "details": "",
+
+        "source": "",
+
+        "error": "",
+
+    }
+
+    # Bild überprüfen
+
+    valid, message = validiere_bild(bild_bytes)
+
+    if not valid:
+
+        result["text"] = message
+
+        result["error"] = message
+
+        return result
+
+    # Bild vorbereiten
+
+    try:
+
+        prepared = bereite_bild_vor(bild_bytes)
+
+    except Exception:
+
+        logger.exception(
+            "Bildvorbereitung fehlgeschlagen"
+        )
+
+        result["text"] = (
+            "Bild konnte nicht vorbereitet werden."
         )
 
         return result
@@ -518,660 +775,964 @@ def analysiere_bild(datei_bytes):
     if api_result["success"]:
 
         result["success"] = True
-        result["source"] = "Hugging Face Inference API"
 
-        result["text"] = (
-            "KI-generierte Bildbeschreibung: "
-            + api_result["text"]
-        )
+        result["source"] = "Hugging Face Vision API"
+
+        result["text"] = api_result["text"]
 
         result["details"] = (
-            "Verwendetes Modell: " + HF_MODEL
+            f"Verwendetes Modell: {HF_MODEL}"
         )
-
-        # Keine medizinische Diagnose aus der KI ableiten.
-        result["unsicher"] = True
-        result["auffaellig"] = False
 
         return result
 
-    # Bei API-Ausfall lokalen Fallback verwenden
+    # Bei API-Fehler lokalen Fallback nutzen
 
-    fallback = lokaler_bild_fallback(prepared)
+    fallback = lokaler_fallback(prepared)
 
-    result["source"] = fallback["source"]
     result["success"] = fallback["success"]
 
+    result["source"] = "Lokaler technischer Fallback"
+
     result["text"] = (
-        "Hugging Face war nicht verfügbar. "
+
+        "Hugging Face war nicht verfügbar.\n\n"
+
         + fallback["text"]
+
     )
 
     result["details"] = (
-        "API-Status: " + api_result["error"]
+
+        f"API-Fehler: {api_result['error']}\n"
+
+        + fallback["details"]
+
     )
 
     result["error"] = api_result["error"]
 
-    # Der Fallback kann keine Entwarnung geben.
-    result["unsicher"] = True
-    result["auffaellig"] = False
-
     return result
 
 
-# =====================================================
-# 9. KLINISCHE DEMONSTRATIONS-TRIAGE
-# =====================================================
+# ============================================================
+# ENDE TEIL 2
+# ============================================================
 
-def berechne_triage(eingaben):
+# ============================================================
+# MEDICALASSISTANT PRO
+# TEIL 3 VON 4
+# TRIAGE UND ERGEBNISDARSTELLUNG
+# ============================================================
+
+
+# ============================================================
+# 16. KEYWORD-ERKENNUNG
+# ============================================================
+
+def finde_notfall_keywords(text: str) -> list:
+
+    text = normalisiere(text)
+
+    treffer = []
+
+    for keyword in NOTFALL_KEYWORDS:
+
+        if keyword in text:
+
+            treffer.append(keyword)
+
+    return treffer
+
+
+# ============================================================
+# 17. TRIAGE-BERECHNUNG
+# ============================================================
+
+def berechne_triage(eingaben: dict) -> dict:
+
+    """
+    Demonstrations-Triage.
+
+    Stufe 0 = Keine programmierte Warnregel ausgelöst.
+    Stufe 1 = Ärztliche Abklärung empfohlen.
+    Stufe 2 = Möglicher Notfall.
+
+    Wichtig:
+    Diese Regeln sind nicht klinisch validiert.
+    Sie ersetzen keine medizinische Triage.
+    """
 
     kategorie = eingaben["kategorie"]
-    schwere = eingaben["schwere"]
-    dauer = eingaben["dauer"]
-    modus = eingaben["modus"]
 
-    text = " ".join([
-        kategorie,
-        eingaben["hergang"],
-        eingaben["notizen"],
-    ])
+    schwere = eingaben["schwere"]
+
+    dauer = eingaben["dauer"]
+
+    hergang = eingaben.get("hergang", "")
+
+    notizen = eingaben.get("notizen", "")
+
+    bild_result = eingaben.get("bild_result")
+
+    text = normalisiere(
+
+        " ".join([
+
+            kategorie,
+
+            hergang,
+
+            notizen,
+
+        ])
+
+    )
 
     stufe = 0
+
     gruende = []
-    hinweise = []
 
-    # -------------------------------------------------
-    # NOTFALLHINWEISE
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # 1. NOTFALLKATEGORIEN
+    # --------------------------------------------------------
 
-    treffer_notfall = finde_keywords(
-        text,
-        NOTFALL_KEYWORDS,
-    )
-
-    if kategorie in KATEGORIEN_NOTFALL:
+    if kategorie in NOTFALL_KATEGORIEN:
 
         stufe = 2
 
         gruende.append(
-            "Die ausgewählte Hauptbeschwerde kann "
-            "auf einen medizinischen Notfall hinweisen."
+
+            "Die ausgewählte Hauptbeschwerde kann einen "
+            "akuten medizinischen Notfall darstellen."
+
         )
 
-    if treffer_notfall:
+    # --------------------------------------------------------
+    # 2. NOTFALL-SCHLÜSSELWÖRTER
+    # --------------------------------------------------------
+
+    notfall_treffer = finde_notfall_keywords(text)
+
+    if notfall_treffer:
 
         stufe = 2
 
         gruende.append(
-            "Mögliche Notfall-Schlüsselwörter: "
-            + ", ".join(treffer_notfall)
+
+            "Mögliche Notfallhinweise im Beschreibungstext: "
+
+            + ", ".join(notfall_treffer)
+
         )
 
-    if modus == MODUS_OFFEN:
+    # --------------------------------------------------------
+    # 3. VERLETZUNGEN
+    # --------------------------------------------------------
 
-        stufe = 2
-
-        gruende.append(
-            "Manuell wurde eine akute offene Verletzung ausgewählt."
-        )
-
-    # -------------------------------------------------
-    # BILDANALYSE
-    # -------------------------------------------------
-
-    bild_log = "Kein Bild hochgeladen."
-    bild_details = ""
-    bild_unsicher = False
-
-    if modus == MODUS_OK:
-
-        bild_log = (
-            "Manuelle Demonstrationsauswahl: "
-            "Struktur als unauffällig markiert. "
-            "Keine medizinische Validierung."
-        )
-
-    elif modus == MODUS_AUFFAELLIG:
-
-        bild_log = (
-            "Manuelle Demonstrationsauswahl: "
-            "Auffällige Struktur markiert."
-        )
+    if kategorie in VERLETZUNGEN:
 
         stufe = max(stufe, 1)
 
         gruende.append(
-            "Manuell wurde eine auffällige Struktur angegeben."
+
+            "Verletzungsbedingte Beschwerden wurden angegeben. "
+            "Eine ärztliche Beurteilung kann erforderlich sein."
+
         )
 
-    elif modus == MODUS_OFFEN:
+    # --------------------------------------------------------
+    # 4. SCHMERZINTENSITÄT
+    # --------------------------------------------------------
 
-        bild_log = (
-            "Manuelle Demonstrationsauswahl: "
-            "Akute offene Verletzung."
+    if schwere == SCHWERE[2]:
+
+        stufe = max(stufe, 1)
+
+        gruende.append(
+
+            "Sehr starke oder unerträgliche Schmerzen wurden angegeben."
+
         )
 
-    elif eingaben["bild_bytes"] is not None:
+    # --------------------------------------------------------
+    # 5. BESCHWERDEDAUER
+    # --------------------------------------------------------
 
-        bild_result = analysiere_bild(
-            eingaben["bild_bytes"]
+    if dauer == DAUER[4]:
+
+        stufe = max(stufe, 1)
+
+        gruende.append(
+
+            "Die Beschwerden bestehen bereits länger als eine Woche."
+
         )
 
-        bild_log = bild_result["text"]
+    # --------------------------------------------------------
+    # 6. BLUTVERDÜNNER
+    # --------------------------------------------------------
 
-        bild_details = bild_result["details"]
+    blutverduenner = [
 
-        bild_unsicher = bild_result["unsicher"]
+        "blutverdünner",
 
-        if not bild_result["success"]:
+        "marcumar",
 
-            hinweise.append(
-                "Das Bild konnte nicht vollständig ausgewertet werden."
+        "xarelto",
+
+        "eliquis",
+
+        "apixaban",
+
+        "rivaroxaban",
+
+    ]
+
+    blutverduenner_treffer = [
+
+        wort for wort in blutverduenner
+
+        if wort in text
+
+    ]
+
+    sturz_vorhanden = (
+
+        "sturz" in text
+
+        or "gestürzt" in text
+
+        or "hingefallen" in text
+
+    )
+
+    if blutverduenner_treffer and (
+
+        kategorie in VERLETZUNGEN or sturz_vorhanden
+
+    ):
+
+        stufe = max(stufe, 1)
+
+        gruende.append(
+
+            "Blutverdünner in Verbindung mit einer Verletzung "
+            "oder einem Sturz erfordern besondere Aufmerksamkeit."
+
+        )
+
+    # --------------------------------------------------------
+    # 7. BILDBEFUND
+    # --------------------------------------------------------
+
+    if bild_result is not None:
+
+        if bild_result.get("success"):
+
+            gruende.append(
+
+                "Eine technische Bildverarbeitung wurde durchgeführt. "
+                "Das Bild liefert keine eigenständige medizinische Diagnose."
+
             )
 
-    # -------------------------------------------------
-    # WEITERE AUFFÄLLIGKEITEN
-    # -------------------------------------------------
+        else:
 
-    treffer = finde_keywords(
-        text,
-        AUFFAELLIG_KEYWORDS,
-    )
+            gruende.append(
 
-    if treffer:
+                "Die Bildverarbeitung war nicht erfolgreich. "
+                "Es ist keine visuelle Beurteilung möglich."
 
-        stufe = max(stufe, 1)
+            )
 
-        gruende.append(
-            "Weitere Hinweise in der Beschreibung: "
-            + ", ".join(treffer)
-        )
+    # --------------------------------------------------------
+    # 8. STANDARDREGEL
+    # --------------------------------------------------------
 
-    if schwere == SCHWERE_OPTIONEN[2]:
-
-        stufe = max(stufe, 1)
+    if not gruende:
 
         gruende.append(
-            "Sehr starke Schmerzen wurden angegeben."
+
+            "Keine der programmierten Warnregeln wurde ausgelöst. "
+            "Das bedeutet ausdrücklich keine medizinische Entwarnung."
+
         )
 
-    if kategorie in {
-        "Schnittwunde / Verbrennung / Äußere Verletzung"
-    }:
-
-        stufe = max(stufe, 1)
-
-        gruende.append(
-            "Die gewählte Verletzungskategorie sollte "
-            "ärztlich beurteilt werden."
-        )
-
-    if (
-        dauer == DAUER_OPTIONEN[4]
-        and kategorie != "Sonstiges / Allgemeine Beschwerden"
-    ):
-
-        stufe = max(stufe, 1)
-
-        gruende.append(
-            "Die Beschwerden bestehen länger als eine Woche."
-        )
-
-    normalized = normalize_text(text)
-
-    if (
-        any(
-            name in normalized
-            for name in [
-                "blutverdunner",
-                "marcumar",
-                "xarelto",
-                "eliquis",
-            ]
-        )
-        and (
-            kategorie in KATEGORIEN_VERLETZUNG
-            or "sturz" in normalized
-            or "gesturzt" in normalized
-        )
-    ):
-
-        stufe = max(stufe, 1)
-
-        gruende.append(
-            "Blutverdünner in Verbindung mit einer Verletzung "
-            "erfordern besondere Aufmerksamkeit."
-        )
-
-    # -------------------------------------------------
-    # UNSICHERE BILDER
-    # -------------------------------------------------
-
-    if (
-        eingaben["bild_bytes"] is not None
-        and bild_unsicher
-        and stufe == 0
-    ):
-
-        stufe = 1
-
-        gruende.append(
-            "Die Bildanalyse ermöglicht keine medizinische "
-            "Entwarnung. Bei entsprechenden Beschwerden "
-            "ist eine ärztliche Einschätzung erforderlich."
-        )
-
-    # -------------------------------------------------
-    # ERGEBNIS
-    # -------------------------------------------------
-
-    if stufe == 0:
-
-        gruende.append(
-            "Die implementierten Demonstrationsregeln "
-            "haben keine entsprechenden Warnhinweise erkannt. "
-            "Dies ist keine medizinische Entwarnung."
-        )
+    # --------------------------------------------------------
+    # 9. ERGEBNIS
+    # --------------------------------------------------------
 
     return {
+
         "stufe": stufe,
+
         "gruende": gruende,
-        "bild_log": bild_log,
-        "bild_details": bild_details,
-        "hinweise": hinweise,
-        "hergang": eingaben["hergang"],
+
+        "bild": bild_result,
+
+        "hergang": hergang,
+
+        "kategorie": kategorie,
+
+        "schwere": schwere,
+
+        "dauer": dauer,
+
     }
 
 
-# =====================================================
-# 10. ERGEBNISDARSTELLUNG
-# =====================================================
+# ============================================================
+# 18. ERGEBNISDARSTELLUNG
+# ============================================================
 
-def render_ergebnis(res):
+def render_ergebnis(result: dict):
 
-    stufe = res["stufe"]
+    stufe = result.get("stufe", 0)
 
-    st.markdown("#### 🩺 Strukturierte Auswertung")
+    st.markdown("### 🩺 Klinisches Auswertungsergebnis")
 
-    st.markdown(
-        f"""
-        <div class="befund-box">
-            <b>Bildverarbeitung:</b><br>
-            {esc(res["bild_log"])}
-            <br><br>
-            <b>Hergang:</b><br>
-            {esc(res["hergang"]) or "Keine Angaben"}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # -------------------------------------------------
-    # STUFE 2
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # NOTFALL
+    # --------------------------------------------------------
 
     if stufe == 2:
 
         st.error(
-            "🚨 Möglicher Notfall – sofortige Notfallversorgung."
+
+            "🚨 MÖGLICHER NOTFALL – HÖCHSTE DRINGLICHKEIT"
+
         )
 
         st.markdown(
-            "Bei akuter Lebensgefahr sofort 112 wählen."
+
+            """
+            Bei akuter Lebensgefahr sofort den Notruf 112 wählen.
+
+            Nicht auf eine weitere Auswertung durch diese Anwendung warten.
+            """
+
         )
 
-        st.markdown(
-            '<a class="emergency-btn" href="tel:112">'
-            '📞 112 anrufen</a>',
-            unsafe_allow_html=True,
+        st.link_button(
+
+            "🚨 Notruf 112",
+
+            "tel:112",
+
+            use_container_width=True,
+
         )
 
-    # -------------------------------------------------
-    # STUFE 1
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # ÄRZTLICHE ABKLÄRUNG
+    # --------------------------------------------------------
 
     elif stufe == 1:
 
         st.warning(
-            "🟡 Ärztliche Abklärung empfohlen."
-        )
 
-        st.write(
-            "Bei dringenden, nicht lebensbedrohlichen "
-            "Beschwerden kann 116117 kontaktiert werden."
+            "🟡 ÄRZTLICHE ABKLÄRUNG EMPFOHLEN"
+
         )
 
         st.markdown(
-            '<a class="bereitschaft-btn" href="tel:116117">'
-            '📞 116 117 anrufen</a>',
-            unsafe_allow_html=True,
+
+            """
+            Die eingegebenen Angaben enthalten Hinweise,
+            die ärztlich beurteilt werden sollten.
+
+            Bei deutlicher Verschlechterung oder neuen
+            Warnzeichen unverzüglich medizinische Hilfe suchen.
+            """
+
         )
 
-    # -------------------------------------------------
-    # STUFE 0
-    # -------------------------------------------------
+        st.link_button(
+
+            "📞 Ärztlicher Bereitschaftsdienst 116117",
+
+            "tel:116117",
+
+            use_container_width=True,
+
+        )
+
+    # --------------------------------------------------------
+    # KEINE PROGRAMMIERTE WARNREGEL
+    # --------------------------------------------------------
 
     else:
 
         st.info(
-            "ℹ️ Keine entsprechenden Warnhinweise in den "
-            "implementierten Demonstrationsregeln erkannt."
+
+            "ℹ️ Keine programmierten Warnregeln ausgelöst."
+
         )
 
-        st.write(
-            "Dies schließt eine Erkrankung oder Verletzung "
-            "nicht aus."
+        st.markdown(
+
+            """
+            Dies ist keine medizinische Entwarnung.
+
+            Eine Erkrankung oder Verletzung kann durch diese
+            Anwendung nicht ausgeschlossen werden.
+            """
+
         )
 
-    # -------------------------------------------------
+    # --------------------------------------------------------
     # BEGRÜNDUNG
-    # -------------------------------------------------
+    # --------------------------------------------------------
 
-    st.markdown("#### Begründung der Einstufung")
+    st.divider()
 
-    for grund in res["gruende"]:
-        st.markdown(f"- {grund}")
+    st.markdown("#### 📋 Begründung der Einstufung")
 
-    for hinweis in res["hinweise"]:
-        st.warning(hinweis)
+    for grund in result.get("gruende", []):
 
-    if res["bild_details"]:
+        st.markdown(f"- {esc(grund)}")
 
-        with st.expander("Technische Details der Bildanalyse"):
-            st.write(res["bild_details"])
+    # --------------------------------------------------------
+    # PATIENTENANGABEN
+    # --------------------------------------------------------
 
-# =====================================================
-# 11. SESSION STATE
-# =====================================================
+    st.divider()
+
+    st.markdown("#### 📝 Erfasste Angaben")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.write("**Hauptbeschwerde**")
+
+        st.write(result.get("kategorie", "Keine Angaben"))
+
+        st.write("**Beschwerdedauer**")
+
+        st.write(result.get("dauer", "Keine Angaben"))
+
+    with col2:
+
+        st.write("**Schmerzintensität**")
+
+        st.write(result.get("schwere", "Keine Angaben"))
+
+        st.write("**Hergang**")
+
+        st.write(result.get("hergang") or "Keine Angaben")
+
+    # --------------------------------------------------------
+    # BILDANALYSE
+    # --------------------------------------------------------
+
+    bild = result.get("bild")
+
+    if bild:
+
+        st.divider()
+
+        st.markdown("#### 📸 Bildverarbeitung")
+
+        st.write(bild.get("text", "Keine Bildbeschreibung vorhanden."))
+
+        source = bild.get("source", "Unbekannt")
+
+        st.caption(
+
+            f"Verarbeitungsquelle: {source}"
+
+        )
+
+        details = bild.get("details", "")
+
+        if details:
+
+            with st.expander("Technische Details anzeigen"):
+
+                st.code(details)
+
+    # --------------------------------------------------------
+    # ABSCHLUSSHINWEIS
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.caption(
+
+        "MedicalAssistant Pro ist ein Demonstrationsprototyp. "
+        "Die dargestellten Ergebnisse sind keine ärztliche Diagnose "
+        "und nicht für klinische Entscheidungen validiert."
+
+    )
+
+
+# ============================================================
+# ENDE TEIL 3
+# ============================================================
+
+# ============================================================
+# MEDICALASSISTANT PRO
+# TEIL 4 VON 4
+# STREAMLIT OBERFLÄCHE UND ANWENDUNGSSTART
+# ============================================================
+
+
+# ============================================================
+# 19. SESSION STATE INITIALISIEREN
+# ============================================================
 
 if "triage_ergebnis" not in st.session_state:
+
     st.session_state.triage_ergebnis = None
 
 
-# =====================================================
-# 12. HEADER
-# =====================================================
+if "api_status" not in st.session_state:
+
+    st.session_state.api_status = "Noch nicht getestet"
+
+
+if "bild_result" not in st.session_state:
+
+    st.session_state.bild_result = None
+
+
+# ============================================================
+# 20. HEADER
+# ============================================================
 
 st.markdown(
+
     """
-    <div class="hero-banner">
+    <div class="hero">
+
         <h1>🩺 MedicalAssistant Pro</h1>
+
         <p>
-            Erweiterte klinische Demonstration,
-            strukturierte Anamnese und KI-gestützte
-            Bildbeschreibung.
+        Erweiterte Symptomerfassung,
+        technische Bildverarbeitung und
+        strukturierte Ersteinschätzung.
         </p>
+
     </div>
     """,
+
     unsafe_allow_html=True,
+
 )
+
+
+# ============================================================
+# 21. MEDIZINISCHER HINWEIS
+# ============================================================
 
 st.markdown(
+
     """
-    <div class="disclaimer-box">
-        <b>⚠️ Medizinischer Sicherheitshinweis</b><br>
-        Diese Anwendung ist ein technischer
-        Demonstrationsprototyp. Sie ersetzt keine
-        ärztliche Untersuchung, Diagnose oder Behandlung.
-        Die KI-Bildbeschreibung ist kein medizinischer Befund.
-        Bei akuter Lebensgefahr sofort 112 wählen.
+    <div class="disclaimer">
+
+        <b>⚠️ Medizinischer Sicherheitshinweis</b><br><br>
+
+        Diese Anwendung ist ein technischer Demonstrationsprototyp.
+
+        Sie ersetzt weder eine ärztliche Untersuchung
+        noch eine medizinische Diagnose.
+
+        Bei akuter Lebensgefahr oder schweren Beschwerden
+        sofort den Notruf <b>112</b> wählen.
+
     </div>
     """,
+
     unsafe_allow_html=True,
+
 )
 
 
-# =====================================================
-# 13. API STATUS
-# =====================================================
+# ============================================================
+# 22. API STATUS
+# ============================================================
 
-col_api1, col_api2 = st.columns(2)
-
-with col_api1:
+with st.expander("🔧 Technischer Systemstatus"):
 
     if HF_TOKEN:
+
         st.success(
-            "🟢 Hugging Face Token konfiguriert"
+            "Hugging-Face-Token wurde gefunden."
         )
 
     else:
+
         st.warning(
-            "🟡 Kein HF Token – lokaler Fallback verfügbar"
+            "Kein Hugging-Face-Token konfiguriert. "
+            "Der lokale technische Bildfallback steht zur Verfügung."
         )
 
-with col_api2:
+    st.write(
 
-    st.info(
-        f"KI-Modell: {HF_MODEL}"
+        f"**Modell:** {HF_MODEL}"
+
+    )
+
+    st.write(
+
+        f"**API-Endpunkt:** {HF_API_URL}"
+
+    )
+
+    st.caption(
+
+        "Die tatsächliche Erreichbarkeit und Modellverfügbarkeit "
+        "werden erst bei einer Bildanalyse geprüft."
+
     )
 
 
-# =====================================================
-# 14. TABS
-# =====================================================
+# ============================================================
+# 23. TABS
+# ============================================================
 
-tab1, tab2, tab3 = st.tabs([
-    "🩺 1. Anamnese & Befund",
-    "💡 2. Klinische Auswertung",
-    "🗺️ 3. Notdienst- & Praxensuche",
-])
+tab1, tab2, tab3 = st.tabs(
+
+    [
+
+        "🩺 1. Anamnese",
+
+        "💡 2. Auswertung",
+
+        "🏥 3. Notdienst",
+
+    ]
+
+)
 
 
-# =====================================================
-# 15. TAB 1 – ANAMNESE
-# =====================================================
+# ============================================================
+# 24. TAB 1 – ANAMNESE
+# ============================================================
 
 with tab1:
 
-    st.markdown(
-        "### 🔍 Schritt 1: Beschwerden, Vorfall und Bild erfassen"
+    st.subheader(
+        "Beschwerden und Untersuchungsdaten erfassen"
     )
 
-    col_haupt, col_foto = st.columns(
+    st.write(
+
+        "Bitte geben Sie die bekannten Informationen ein."
+
+    )
+
+    col1, col2 = st.columns(
+
         [1, 1],
-        gap="medium",
+
+        gap="large",
+
     )
 
-    # -------------------------------------------------
-    # LINKER BEREICH
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # HAUPTBESCHWERDE
+    # --------------------------------------------------------
 
-    with col_haupt:
+    with col1:
 
         hauptsymptom = st.selectbox(
-            "Hauptbeschwerde / Symptomkategorie:",
-            SYMPTOM_OPTIONEN,
+
+            "Hauptbeschwerde",
+
+            SYMPTOME,
+
             key="hauptsymptom",
+
         )
 
-        col1, col2 = st.columns(2)
+        dauer = st.selectbox(
 
-        with col1:
+            "Dauer der Beschwerden",
 
-            dauer = st.selectbox(
-                "Dauer der Beschwerden:",
-                DAUER_OPTIONEN,
-                key="dauer",
-            )
+            DAUER,
 
-        with col2:
+            key="dauer",
 
-            schweregrad = st.selectbox(
-                "Intensität / Schmerzlevel:",
-                SCHWERE_OPTIONEN,
-                key="schweregrad",
-            )
+        )
 
-        unfallhergang = st.text_area(
-            "📝 Wie ist es passiert?",
+        schweregrad = st.selectbox(
+
+            "Schmerzintensität",
+
+            SCHWERE,
+
+            key="schweregrad",
+
+        )
+
+        hergang = st.text_area(
+
+            "Wie ist es passiert?",
+
             placeholder=(
-                "z.B. Stark gestoßen, gestürzt, "
-                "beim Sport umgeknickt oder seit gestern "
-                "großflächig verfärbt..."
+
+                "Beispielsweise: Beim Sport umgeknickt, "
+                "gestürzt oder gestoßen..."
+
             ),
-            max_chars=3000,
-            key="unfallhergang",
+
+            height=130,
+
+            key="hergang",
+
         )
 
-    # -------------------------------------------------
-    # RECHTER BEREICH
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # BILDUPLOAD
+    # --------------------------------------------------------
 
-    with col_foto:
+    with col2:
+
+        st.markdown("#### 📸 Bilddokumentation")
 
         uploaded_file = st.file_uploader(
-            "📸 Medizinische Fotodokumentation",
-            type=["jpg", "jpeg", "png"],
-            key="uploaded_file",
-            help=(
-                "Optional. Maximal 8 MB. "
-                "Die KI erstellt eine Bildbeschreibung, "
-                "keine medizinische Diagnose."
-            ),
-        )
 
-        bild_bytes = None
+            "Foto hochladen",
+
+            type=["jpg", "jpeg", "png"],
+
+            max_upload_size=8,
+
+            key="medizinisches_bild",
+
+        )
 
         if uploaded_file is not None:
 
             try:
 
-                bild_bytes = uploaded_file.getvalue()
+                uploaded_file.seek(0)
 
-                valid, message = validiere_bild(
-                    bild_bytes
+                st.image(
+
+                    uploaded_file,
+
+                    caption="Hochgeladenes Bild",
+
+                    use_container_width=True,
+
                 )
 
-                if valid:
-
-                    st.image(
-                        bild_bytes,
-                        caption="Hochgeladenes Untersuchungsbild",
-                        width=280,
-                    )
-
-                    st.success(message)
-
-                else:
-
-                    st.error(message)
-                    bild_bytes = None
+                uploaded_file.seek(0)
 
             except Exception:
 
-                logger.exception(
-                    "Fehler bei der Bildvorschau"
-                )
-
                 st.error(
-                    "Das Bild konnte nicht geladen werden."
+                    "Das Bild konnte nicht angezeigt werden."
                 )
 
-                bild_bytes = None
+        analyse_modus = st.selectbox(
 
-        visueller_eindruck = st.selectbox(
-            "🔬 Bildbewertung / Analysemodus:",
-            MODUS_OPTIONEN,
-            key="visueller_eindruck",
-            help=(
-                "Automatisch: Hugging Face Bildbeschreibung "
-                "mit lokalem Fallback. Manuell: "
-                "Präsentationsmodus. Keine medizinische "
-                "Diagnose."
-            ),
+            "Bildverarbeitung",
+
+            MODI,
+
+            key="analyse_modus",
+
         )
 
-    # -------------------------------------------------
-    # ZUSÄTZLICHE NOTIZEN
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # ZUSÄTZLICHE ANGABEN
+    # --------------------------------------------------------
 
-    st.markdown("#### 📝 Weitere Informationen")
+    notizen = st.text_area(
 
-    zusaetzliche_notizen = st.text_area(
-        "Zusätzliche Beobachtungen:",
+        "Zusätzliche Beobachtungen",
+
         placeholder=(
-            "z.B. Vorerkrankungen, Blutverdünner, "
-            "Allergien oder weitere Beschwerden..."
+
+            "Beispielsweise: Blutverdünner, "
+            "Vorerkrankungen, Allergien oder weitere Symptome..."
+
         ),
-        max_chars=3000,
-        key="zusaetzliche_notizen",
+
+        height=110,
+
+        key="notizen",
+
     )
 
     st.divider()
 
-    # -------------------------------------------------
-    # AUSWERTUNG STARTEN
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # AUSWERTUNGSBUTTON
+    # --------------------------------------------------------
 
-    if st.button(
-        "🚀 Klinische Auswertung starten",
+    auswerten = st.button(
+
+        "🚀 Analyse und Auswertung starten",
+
         type="primary",
+
         use_container_width=True,
-    ):
+
+    )
+
+    if auswerten:
 
         if hauptsymptom == "Bitte wählen...":
 
             st.error(
-                "Bitte wähle zuerst eine Hauptbeschwerde aus."
-            )
 
-        elif uploaded_file is not None and bild_bytes is None:
+                "Bitte zuerst eine Hauptbeschwerde auswählen."
 
-            st.error(
-                "Das hochgeladene Bild ist ungültig. "
-                "Bitte lade eine gültige JPG- oder PNG-Datei hoch."
             )
 
         else:
 
             try:
 
-                with st.spinner(
-                    "Anamnese und Bilddaten werden verarbeitet..."
+                bild_result = None
+
+                bild_bytes = None
+
+                # Foto einlesen
+
+                if uploaded_file is not None:
+
+                    uploaded_file.seek(0)
+
+                    bild_bytes = uploaded_file.getvalue()
+
+                # Bildanalyse nur bei automatischem Modus
+
+                if (
+
+                    bild_bytes is not None
+
+                    and analyse_modus == MODI[0]
+
                 ):
 
-                    inputs = {
-                        "kategorie": hauptsymptom,
-                        "dauer": dauer,
-                        "schwere": schweregrad,
-                        "hergang": unfallhergang,
-                        "notizen": zusaetzliche_notizen,
-                        "modus": visueller_eindruck,
-                        "bild_bytes": bild_bytes,
+                    with st.spinner(
+
+                        "Bild wird technisch verarbeitet. "
+                        "Hugging Face wird angefragt..."
+
+                    ):
+
+                        bild_result = analysiere_bild(
+                            bild_bytes
+                        )
+
+                    if bild_result.get("error"):
+
+                        st.warning(
+
+                            "API-Status: Hugging Face nicht "
+                            "verfügbar. Lokaler Fallback wurde "
+                            "verwendet, sofern möglich."
+
+                        )
+
+                    elif bild_result.get("source"):
+
+                        st.success(
+
+                            "Bildverarbeitung abgeschlossen."
+
+                        )
+
+                # Manuelle Dokumentation
+
+                elif (
+
+                    bild_bytes is not None
+
+                    and analyse_modus == MODI[1]
+
+                ):
+
+                    bild_result = {
+
+                        "success": False,
+
+                        "text": (
+
+                            "Bild wurde hochgeladen. "
+                            "Keine automatische medizinische "
+                            "Beurteilung durchgeführt."
+
+                        ),
+
+                        "details": "",
+
+                        "source": "Manuelle Dokumentation",
+
                     }
 
-                    result = berechne_triage(inputs)
+                # Triage-Eingaben
 
-                    st.session_state.triage_ergebnis = result
+                eingaben = {
 
-                st.success(
-                    "✅ Auswertung abgeschlossen! "
-                    "Bitte öffne jetzt Tab 2."
+                    "kategorie": hauptsymptom,
+
+                    "dauer": dauer,
+
+                    "schwere": schweregrad,
+
+                    "hergang": hergang,
+
+                    "notizen": notizen,
+
+                    "bild_result": bild_result,
+
+                }
+
+                # Triage berechnen
+
+                ergebnis = berechne_triage(
+                    eingaben
                 )
 
-            except Exception:
+                # Ergebnis speichern
+
+                st.session_state.triage_ergebnis = ergebnis
+
+                st.session_state.bild_result = bild_result
+
+                st.success(
+
+                    "Auswertung abgeschlossen. "
+                    "Bitte den zweiten Tab öffnen."
+
+                )
+
+            except Exception as exc:
 
                 logger.exception(
                     "Fehler bei der Auswertung"
                 )
 
-                st.session_state.triage_ergebnis = None
-
                 st.error(
-                    "Die Auswertung konnte nicht abgeschlossen "
-                    "werden. Bitte überprüfe deine Eingaben."
+
+                    "Die Auswertung konnte nicht abgeschlossen werden."
+
+                )
+
+                st.caption(
+
+                    f"Technischer Fehler: {type(exc).__name__}"
+
                 )
 
 
-# =====================================================
-# 16. TAB 2 – AUSWERTUNG
-# =====================================================
+# ============================================================
+# 25. TAB 2 – AUSWERTUNG
+# ============================================================
 
 with tab2:
 
-    st.markdown(
-        "### 💡 Strukturierte Ersteinschätzung und Auswertung"
+    st.subheader(
+        "Klinische Ersteinschätzung"
     )
 
     ergebnis = st.session_state.triage_ergebnis
@@ -1179,156 +1740,191 @@ with tab2:
     if ergebnis is None:
 
         st.info(
-            "ℹ️ Bitte fülle zuerst die Anamnese in Tab 1 aus "
-            "und starte die klinische Auswertung."
+
+            "Bitte zuerst die Anamnese im ersten Tab ausfüllen "
+            "und die Auswertung starten."
+
         )
 
     else:
 
-        render_ergebnis(ergebnis)
+        try:
 
-        st.divider()
+            render_ergebnis(ergebnis)
 
-        st.caption(
-            "Die dargestellte Einstufung basiert auf "
-            "vereinfachten Demonstrationsregeln und ist "
-            "keine klinisch validierte Triage."
-        )
+        except Exception:
 
-        if st.button(
-            "🔄 Neue Auswertung starten",
-            use_container_width=True,
-        ):
+            logger.exception(
+                "Fehler bei Ergebnisdarstellung"
+            )
 
-            st.session_state.triage_ergebnis = None
+            st.error(
 
-            st.rerun()
+                "Das Ergebnis konnte nicht dargestellt werden. "
+                "Bitte die Auswertung erneut starten."
+
+            )
 
 
-# =====================================================
-# 17. TAB 3 – NOTDIENST- UND PRAXENSUCHE
-# =====================================================
+# ============================================================
+# 26. TAB 3 – NOTDIENST
+# ============================================================
 
 with tab3:
 
-    st.markdown(
-        "### 🗺️ Ärztlicher Bereitschaftsdienst"
+    st.subheader(
+
+        "🏥 Ärztlicher Bereitschaftsdienst"
+
     )
 
     st.write(
-        "Geben Sie Ihre Postleitzahl ein, um die "
-        "Informationen zum ärztlichen Bereitschaftsdienst "
-        "aufzurufen."
+
+        "Geben Sie Ihre deutsche Postleitzahl ein, "
+        "um den zuständigen Bereitschaftsdienst zu finden."
+
     )
 
-    plz_eingabe = st.text_input(
-        "Postleitzahl eingeben:",
-        placeholder="z.B. 23552",
+    plz = st.text_input(
+
+        "Postleitzahl",
+
+        placeholder="z. B. 23552",
+
         max_chars=5,
-        key="plz",
-    )
 
-    plz = plz_eingabe.strip()
+        key="notdienst_plz",
+
+    ).strip()
 
     if plz:
 
-        if not re.fullmatch(r"\d{5}", plz):
+        if not (
+
+            plz.isdigit()
+
+            and len(plz) == 5
+
+        ):
 
             st.warning(
+
                 "Bitte eine gültige fünfstellige "
                 "deutsche Postleitzahl eingeben."
+
             )
 
         else:
 
-            st.success(
-                f"📍 Angegebene Postleitzahl: {plz}"
-            )
-
             st.markdown(
+
                 f"""
                 <div class="card">
 
-                    <h3>
-                        🏥 Ärztlicher Bereitschaftsdienst
-                    </h3>
+                    <h3>📍 Bereitschaftsdienst</h3>
 
                     <p>
-                        <b>Ihre Postleitzahl:</b> {esc(plz)}
+                    Angegebene Postleitzahl:
+                    <b>{esc(plz)}</b>
                     </p>
 
                     <p>
-                        Außerhalb der regulären Praxiszeiten
-                        erreichen Sie den ärztlichen
-                        Bereitschaftsdienst unter
-                        <b>116 117</b>.
+                    Der ärztliche Bereitschaftsdienst
+                    hilft außerhalb regulärer Praxiszeiten.
+                    </p>
+
+                    <h3>📞 116 117</h3>
+
+                    <p>
+                    Über die bundesweite Rufnummer erhalten
+                    Sie Informationen zu zuständigen
+                    Bereitschaftspraxen und medizinischer Hilfe.
                     </p>
 
                     <p>
-                        Dort erfahren Sie, welche
-                        Bereitschaftspraxis zuständig ist
-                        und welche Einrichtung aktuell
-                        geöffnet hat.
+                    Bei lebensbedrohlichen Beschwerden:
+                    <b>112</b>.
                     </p>
-
-                    <p>
-                        <b>Bei akuter Lebensgefahr:</b>
-                        112 wählen.
-                    </p>
-
-                    <a
-                        href="tel:116117"
-                        class="bereitschaft-btn"
-                    >
-                        📞 116 117 anrufen
-                    </a>
-
-                    <a
-                        href="tel:112"
-                        class="emergency-btn"
-                    >
-                        🚨 112 Notruf
-                    </a>
 
                 </div>
                 """,
+
                 unsafe_allow_html=True,
+
             )
 
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+
+                st.link_button(
+
+                    "📞 116 117 anrufen",
+
+                    "tel:116117",
+
+                    use_container_width=True,
+
+                )
+
+            with col_b:
+
+                st.link_button(
+
+                    "🚨 Notruf 112",
+
+                    "tel:112",
+
+                    use_container_width=True,
+
+                )
+
             st.link_button(
-                "🔎 Offizielle Bereitschaftspraxissuche öffnen",
+
+                "🔎 Bereitschaftspraxis suchen",
+
                 "https://www.116117.de",
+
                 use_container_width=True,
+
             )
 
     else:
 
         st.info(
-            "💡 Bitte gib deine Postleitzahl ein, "
-            "um die Notdienstinformationen anzuzeigen."
+
+            "Bitte geben Sie Ihre Postleitzahl ein."
+
         )
 
 
-# =====================================================
-# 18. FOOTER
-# =====================================================
+# ============================================================
+# 27. FOOTER
+# ============================================================
 
 st.divider()
 
 st.markdown(
+
     """
-    <div style="
-        text-align:center;
-        color:#64748b;
-        padding:15px;
-        font-size:0.85rem;
-    ">
-        <b>🩺 MedicalAssistant Pro</b><br>
-        Professional Demonstration Edition<br>
-        KI-Bildbeschreibung und strukturierte
-        Symptomerfassung<br><br>
-        Keine medizinische Diagnose oder Therapieempfehlung.
+    <div class="footer">
+
+        <b>MedicalAssistant Pro</b><br>
+
+        Technischer Demonstrationsprototyp<br>
+
+        Keine medizinische Diagnose oder Therapieempfehlung.<br>
+
+        Bei akuten Notfällen: 112
+
     </div>
     """,
+
     unsafe_allow_html=True,
+
 )
+
+
+# ============================================================
+# ENDE DER APP
+# ============================================================
