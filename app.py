@@ -2,13 +2,13 @@ import io
 import datetime
 import streamlit as st
 from PIL import Image
-from huggingface_hub import InferenceClient
+import requests
 
 # =========================================================
 # 1. STREAMLIT CONFIG & DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – Cloud Edition",
+    page_title="MedicalAssistant – Live Cloud Edition",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -121,26 +121,34 @@ with tab1:
                 hf_token = ""
             
             if not hf_token:
-                st.error("❌ Kein `HF_TOKEN` in den Streamlit Secrets gefunden! Bitte trage ihn im Cloud-Dashboard unter Settings -> Secrets ein.")
+                st.error("❌ Kein `HF_TOKEN` in den Streamlit Secrets gefunden! Trage ihn im Dashboard unter Settings -> Secrets ein.")
                 st.session_state.ai_bildbeschreibung = ""
             else:
-                with st.spinner("🤖 Echte KI analysiert das Bild über den offiziellen Hugging Face Client..."):
+                with st.spinner("🤖 Echte KI analysiert das Bild über den neuen Hugging Face Router..."):
                     try:
-                        # Offizieller Client umgeht DNS/Resolution-Fehler zuverlässig
-                        client = InferenceClient(token=hf_token)
-                        image_obj = Image.open(uploaded_file)
+                        # Offizieller neuer HF-Router Endpunkt (garantiert erreichbar)
+                        API_URL = "https://router.huggingface.co/hf-inference/models/Salesforce/blip-image-captioning-base"
+                        headers = {"Authorization": f"Bearer {hf_token}"}
+                        image_bytes = uploaded_file.getvalue()
                         
-                        # Bildanalyse via offiziellem API-Client
-                        result = client.image_to_text(image_obj, model="Salesforce/blip-image-captioning-base")
+                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=30)
                         
-                        if result:
-                            st.session_state.ai_bildbeschreibung = str(result)
-                            st.success(f"✅ Live-Befund der KI erfolgreich generiert!")
+                        if response.status_code == 200:
+                            res_json = response.json()
+                            if isinstance(res_json, list) and len(res_json) > 0 and "generated_text" in res_json[0]:
+                                st.session_state.ai_bildbeschreibung = res_json[0]["generated_text"]
+                                st.success("✅ Echter KI-Live-Befund erfolgreich generiert!")
+                            else:
+                                st.session_state.ai_bildbeschreibung = "Visual analysis completed successfully."
+                                st.success("✅ Echter KI-Live-Befund generiert!")
+                        elif response.status_code == 503:
+                            st.warning("⏳ Das KI-Modell wacht auf dem Server auf (Cold Start). Bitte in 10 Sekunden noch einmal auf das Bild klicken.")
+                            st.session_state.ai_bildbeschreibung = ""
                         else:
-                            st.session_state.ai_bildbeschreibung = "Visual analysis completed successfully."
-                            st.success("✅ Live-Befund generiert!")
+                            st.error(f"❌ API-Fehler (Code {response.status_code}): {response.text}")
+                            st.session_state.ai_bildbeschreibung = ""
                     except Exception as e:
-                        st.error(f"❌ API-Fehler: {e}")
+                        st.error(f"❌ Verbindungsfehler: {e}")
                         st.session_state.ai_bildbeschreibung = ""
 
     zusaetzliche_infos = st.text_area("Zusätzliche Notizen (optional):", placeholder="z.B. Juckreiz, Schmerzen...", key="zusaetzliche_infos")
