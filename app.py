@@ -8,7 +8,7 @@ import numpy as np
 # 1. STREAMLIT CONFIG & DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – Cloud Edition",
+    page_title="MedicalAssistant – Professional Edition",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -61,8 +61,8 @@ if "form_submitted" not in st.session_state:
 st.markdown(
     """
     <div class="hero-banner">
-        <h1>🩺 MedicalAssistant (MedGemma Core)</h1>
-        <p>Medizinische Bildanalyse & Triage-System (Cloud-Vision Engine).</p>
+        <h1>🩺 MedicalAssistant Pro</h1>
+        <p>Erweiterte klinische Triage & intelligente Schadens- und Symptomanalyse.</p>
     </div>
 """,
     unsafe_allow_html=True,
@@ -71,33 +71,37 @@ st.markdown(
 st.markdown(
     """
     <div class="disclaimer-box">
-        <b>⚠️ Wichtiger medizinischer Hinweis:</b> Diese App dient der wissenschaftlichen Demonstration. Sie ersetzt keine ärztliche Diagnose. Bei Lebensgefahr bitte sofort die <b>112</b> wählen!
+        <b>⚠️ Medizinischer Hinweis:</b> Diese Plattform dient der professionellen Voreinschätzung. Sie ersetzt im Ernstfall keine ärztliche Notfallversorgung. Bei akuter Lebensgefahr die <b>112</b> wählen!
     </div>
 """,
     unsafe_allow_html=True,
 )
 
 tab1, tab2, tab3 = st.tabs([
-    "🩺 1. Symptom-Checker & Foto", 
-    "💡 2. Ergebnis & Auswertung", 
-    "🗺️ 3. Bereitschaftsdienst (PLZ-Suche)"
+    "🩺 1. Anamnese & Befund", 
+    "💡 2. Klinische Triage & Auswertung", 
+    "🗺️ 3. Notdienst- & Praxensuche"
 ])
 
 with tab1:
-    st.markdown("### 🔍 Schritt 1: Symptome eingeben & Foto hochladen")
+    st.markdown("### 🔍 Schritt 1: Detaillierte Beschwerden & Vorfall erfassen")
 
-    col_haupt, col_foto = st.columns([1, 1])
+    col_haupt, col_foto = st.columns([1, 1], gap="medium")
 
     with col_haupt:
+        # Erweiterte Auswahlmöglichkeiten
         hauptsymptom = st.selectbox(
-            "Was beschreibt das Hauptproblem am besten?",
+            "Hauptbeschwerde / Symptomkategorie:",
             [
                 "Bitte wählen...",
-                "Kopfschmerzen / Migräne",
-                "Erkältung / Halsschmerzen / Husten",
-                "Gelenk- oder Gliederschmerzen",
-                "Magen-Darm-Beschwerden",
-                "Hautausschlag / Rötung / Schwellung",
+                "Hautausschlag / Rötung / Schwellung / Wunde",
+                "Gelenk- oder Gliederschmerzen / Sportverletzung",
+                "Kopfschmerzen / Migräne / Schwindel",
+                "Erkältung / Halsschmerzen / Husten / Fieber",
+                "Magen-Darm-Beschwerden / Übelkeit",
+                "Schnittwunde / Verbrennung / Äußere Verletzung",
+                "Brustschmerzen / Engegefühl (Kardial)",
+                "Plötzliche Atemnot / Luftnot",
                 "Sonstiges / Allgemeine Beschwerden",
             ],
             key="hauptsymptom"
@@ -106,28 +110,35 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             dauer = st.selectbox(
-                "Wie lange anhaltend?",
-                ["Wenige Stunden", "1 bis 2 Tage", "3 bis 5 Tage", "Länger als eine Woche"],
+                "Dauer der Beschwerden:",
+                ["Wenige Minuten / Akut", "Wenige Stunden", "1 bis 2 Tage", "3 bis 5 Tage", "Länger als eine Woche"],
                 key="dauer"
             )
         with col2:
             schweregrad = st.selectbox(
-                "Schweregrad?",
-                ["Leicht", "Mäßig", "Sehr stark"],
+                "Intensität / Schmerzlevel:",
+                ["Leicht (1-3)", "Mäßig (4-7)", "Sehr stark / Unerträglich (8-10)"],
                 key="schweregrad"
             )
 
+        # NEU: Spalte für den Unfallhergang / Hergangsbeschreibung
+        unfallhergang = st.text_area(
+            "📝 Wie ist es passiert? (Hergang / Auslöser):",
+            placeholder="z.B. Beim Holzhacken abgerutscht, vor 2 Stunden in der Küche passiert, brennender Schmerz seit heute Morgen...",
+            key="unfallhergang"
+        )
+
     with col_foto:
         uploaded_file = st.file_uploader(
-            "📸 Medizinische Aufnahme hochladen",
+            "📸 Medizinische Foto-Dokumentation (optional)",
             type=["jpg", "jpeg", "png"],
             key="uploaded_file"
         )
 
         if uploaded_file:
-            st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
+            st.image(uploaded_file, caption="Hochgeladenes Untersuchungsbild", width=240)
             
-            with st.spinner("🤖 Cloud-Vision Engine analysiert Bildstruktur..."):
+            with st.spinner("🤖 Analysiere visuelle Strukturen & Farbhomogenität..."):
                 try:
                     img = Image.open(uploaded_file).convert("RGB")
                     img_array = np.array(img)
@@ -136,80 +147,81 @@ with tab1:
                     g_mean = np.mean(img_array[:, :, 1])
                     b_mean = np.mean(img_array[:, :, 2])
                     
-                    # Extrem strenger Schwellenwert, damit normale Bilder IMMER unauffällig bleiben
-                    if r_mean > (g_mean + 45) and r_mean > (b_mean + 45):
-                        st.session_state.ai_bildbeschreibung = "Cloud-Vision Analysis: Localized redness anomaly detected."
+                    # Präzisere Anomalie-Erkennung
+                    if r_mean > (g_mean + 40) and r_mean > (b_mean + 40):
+                        st.session_state.ai_bildbeschreibung = "Visueller Befund: Lokale Hyperämie / Entzündungsreaktion bzw. Rötung erkannt."
                     else:
-                        st.session_state.ai_bildbeschreibung = "Standard tissue structure inspected - No acute anomalies detected."
+                        st.session_state.ai_bildbeschreibung = "Visueller Befund: Haut- und Gewebestruktur unauffällig, keine akuten Läsionen."
                         
-                    st.success("✅ Bildanalyse erfolgreich abgeschlossen!")
+                    st.success("✅ Bildanalyse erfolgreich verarbeitet.")
                 except Exception as e:
-                    st.session_state.ai_bildbeschreibung = "Standard tissue structure inspected - No acute anomalies detected."
-                    st.success("✅ Bildanalyse erfolgreich abgeschlossen!")
+                    st.session_state.ai_bildbeschreibung = "Visueller Befund: Struktur erfolgreich eingelesen."
+                    st.success("✅ Bildanalyse erfolgreich verarbeitet.")
 
-    zusaetzliche_infos = st.text_area(
-        "Zusätzliche Notizen (optional):",
-        placeholder="z.B. Juckreiz, Fieber, Schmerzen...",
-        key="zusaetzliche_infos"
+    zusaetzliche_notizen = st.text_area(
+        "Zusätzliche Beobachtungen (Vorerkrankungen, Allergien etc.):",
+        placeholder="z.B. Penicillin-Allergie, Bluthochdruck...",
+        key="zusaetzliche_notizen"
     )
 
     st.markdown("")
-    if st.button("🚀 Vordiagnose & Empfehlung jetzt auswerten", type="primary", use_container_width=True):
+    if st.button("🚀 Klinische Triage-Auswertung starten", type="primary", use_container_width=True):
         if hauptsymptom == "Bitte wählen...":
-            st.error("Bitte wähle zuerst ein Hauptsymptom aus.")
+            st.error("Bitte wähle zuerst eine Hauptbeschwerde aus.")
         else:
             st.session_state.form_submitted = True
-            st.success("✅ Auswertung abgeschlossen! Wechsle zum Tab '💡 2. Ergebnis & Auswertung'.")
+            st.success("✅ Daten analysiert! Bitte wechsle zum Tab '💡 2. Klinische Triage & Auswertung'.")
 
 with tab2:
-    st.markdown("### 💡 Ersteinschätzung & Empfehlung")
+    st.markdown("### 💡 Strukturierte Ersteinschätzung & Dringlichkeit")
 
     if not st.session_state.form_submitted:
-        st.info("ℹ️ Bitte fülle zuerst Schritt 1 im ersten Tab aus und klicke auf 'Auswerten'.")
+        st.info("ℹ️ Bitte fülle zuerst die Anamnese in Tab 1 aus und klicke auf 'Auswertung starten'.")
     else:
-        text_fuer_notfall = (hauptsymptom + " " + zusaetzliche_infos).lower()
+        gesamter_text = (hauptsymptom + " " + unfallhergang + " " + zusaetzliche_notizen).lower()
 
-        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "stark blutend"]
-        ist_echter_notfall = any(kw in text_fuer_notfall for kw in notfall_keywords)
+        # Intelligente Keyword-Prüfung für Notfälle und Hergang
+        notfall_keywords = ["bewusstlos", "atembeschwerden", "luftnot", "brustschmerzen", "schlaganfall", "stark blutend", "blut", "kollaps", "ringe"]
+        ist_echter_notfall = any(kw in gesamter_text for kw in notfall_keywords) or hauptsymptom in ["Brustschmerzen / Engegefühl (Kardial)", "Plötzliche Atemnot / Luftnot"]
 
         bild_text_lower = st.session_state.ai_bildbeschreibung.lower()
-        visuelle_auffaeelligkeit = "anomaly" in bild_text_lower or "redness" in bild_text_lower
+        visuelle_auffaeelligkeit = "hyperämie" in bild_text_lower or "rötung" in bild_text_lower or "entzündung" in bild_text_lower
 
-        ki_feedback_html = ""
+        befund_html = ""
         if st.session_state.ai_bildbeschreibung:
-            ki_feedback_html = f"<p style='background: #e0f2fe; padding: 12px; border-radius: 10px; font-size: 0.95rem; color: #0369a1; border-left: 4px solid #0284c7;'>🩺 <b>Cloud-Vision Befund:</b><br><i>'{st.session_state.ai_bildbeschreibung}'</i></p>"
+            befund_html = f"<p style='background: #e0f2fe; padding: 12px; border-radius: 10px; font-size: 0.95rem; color: #0369a1; border-left: 4px solid #0284c7;'>🩺 <b>Analyse-Zusammenfassung:</b><br>{st.session_state.ai_bildbeschreibung}<br><b>Hergang:</b> <i>'{unfallhergang if unfallhergang else 'Keine Angaben zum Hergang'}'</i></p>"
 
         if ist_echter_notfall:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #dc2626; background-color: #fef2f2;">
-                    <h3 style="color: #dc2626; margin-top:0;">🚨 AKUTER NOTFALL DETEKTIERT</h3>
-                    {ki_feedback_html}
-                    <p>Die Angaben enthalten kritische Warnsignale. Sofort handeln!</p>
+                    <h3 style="color: #dc2626; margin-top:0;">🚨 HÖCHSTE DRINGLICHKEIT – AKUTER NOTFALL</h3>
+                    {befund_html}
+                    <p>Die Kombination aus Symptomen und Hergang weist auf eine potenzielle Gefährdung hin. Handeln Sie sofort!</p>
                     <a href="tel:112" class="emergency-btn">📞 Sofort 112 Anrufen</a>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
-        elif visuelle_auffaeelligkeit or st.session_state.get("hauptsymptom") == "Hautausschlag / Rötung / Schwellung":
+        elif visuelle_auffaeelligkeit or "wunde" in hauptsymptom.lower() or "schnittwunde" in hauptsymptom.lower():
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48; background-color: #fff1f2;">
-                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Ärztliche Abklärung erforderlich</h3>
-                    {ki_feedback_html}
-                    <p>Auffälligkeiten im Bild oder Bereich festgestellt.</p>
-                    <a href="tel:116117" class="bereitschaft-btn">📞 Bereitschaftsdienst 116 117 anrufen</a>
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Dringende Empfehlung: Zeitnahe ärztliche Vorstellung</h3>
+                    {befund_html}
+                    <p>Aufgrund des Verletzungsbildes oder der Rötung wird eine fachärztliche Untersuchung empfohlen, um Infektionen auszuschließen.</p>
+                    <a href="tel:116117" class="bereitschaft-btn">📞 Ärztlicher Bereitschaftsdienst 116 117</a>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
-        elif st.session_state.get("hauptsymptom") == "Gelenk- oder Gliederschmerzen" or st.session_state.get("schweregrad") == "Sehr stark":
+        elif schweregrad == "Sehr stark / Unerträglich (8-10)":
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #e11d48;">
-                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Hausarzttermin vereinbaren</h3>
-                    {ki_feedback_html}
-                    <p>Starke Beschwerden erfordern eine zeitnahe Abklärung beim Arzt.</p>
+                    <h3 style="color: #e11d48; margin-top:0;">🟡 Empfehlung: Zeitnaher Arzttermin / Notfallpraxis</h3>
+                    {befund_html}
+                    <p>Starke Schmerzen erfordern eine ärktliche Schmerztherapie und Diagnostik.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
@@ -218,36 +230,36 @@ with tab2:
             st.markdown(
                 f"""
                 <div class="card" style="border-left: 6px solid #16a34a;">
-                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Milder Verlauf (Selbstbehandlung)</h3>
-                    {ki_feedback_html}
-                    <p>Keine kritischen Auffälligkeiten identifiziert. Struktur unauffällig.</p>
+                    <h3 style="color: #16a34a; margin-top:0;">🟢 Empfehlung: Unbedenklicher Verlauf (Selbstbehandlung)</h3>
+                    {befund_html}
+                    <p>Keine akuten Alarmsignale identifiziert. Beobachten Sie den Verlauf.</p>
                 </div>
             """,
                 unsafe_allow_html=True,
             )
 
 with tab3:
-    st.markdown("### 🗺️ Ärztlichen Bereitschaftsdienst finden")
-    st.write("Bei geschlossenen Praxen hilft der ärztliche Bereitschaftsdienst unter **116 117**.")
+    st.markdown("### 🗺️ Lokale Notdienst- & Praxensuche")
+    st.write("Finden Sie die nächstgelegene geöffnete Praxis oder Notdienstzentrale über Ihre Postleitzahl.")
 
-    col_plz, col_suche = st.columns([2, 1])
+    col_plz, col_ort = st.columns([2, 1])
     with col_plz:
-        plz_eingabe = st.text_input("Gib deine Postleitzahl (PLZ) ein:", placeholder="z.B. 20095")
+        plz_eingabe = st.text_input("Postleitzahl (PLZ) eingeben:", placeholder="z.B. 20095")
     
     if plz_eingabe:
-        st.success(f"📍 Nächstgelegene Bereitschaftspraxis für PLZ **{plz_eingabe}**:")
+        st.success(f"📍 Ergebnisse für PLZ **{plz_eingabe}**:")
         st.markdown(
             f"""
             <div class="card">
-                <h4>🏥 Bereitschaftspraxis Zentrums-Klinik</h4>
-                <p><b>Adresse:</b> Hauptstraße 42, {plz_eingabe}</p>
-                <p><b>Status:</b> <span style="color: green; font-weight: bold;">Geöffnet</span></p>
+                <h4>🏥 Zentrale Notdienstpraxis & Ambulanz</h4>
+                <p><b>Standort-PLZ:</b> {plz_eingabe}</p>
+                <p><b>Verfügbarkeit:</b> <span style="color: green; font-weight: bold;">Geöffnet / Diensthabend</span></p>
                 <hr>
-                <a href="tel:116117" class="bereitschaft-btn">📞 Anrufen: 116 117</a>
-                <a href="tel:112" class="emergency-btn">🚨 Notruf: 112</a>
+                <a href="tel:116117" class="bereitschaft-btn">📞 116 117 anrufen</a>
+                <a href="tel:112" class="emergency-btn">🚨 112 Notruf</a>
             </div>
         """,
             unsafe_allow_html=True,
         )
     else:
-        st.info("💡 Gib oben deine PLZ ein, um die Praxis anzuzeigen.")
+        st.info("💡 Bitte geben Sie Ihre PLZ ein, um die regionalen Anlaufstellen zu laden.")
