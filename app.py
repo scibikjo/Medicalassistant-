@@ -244,4 +244,10 @@ with tab3:
                 <p><b>Status:</b> <span style="color: green; font-weight: bold;">Geöffnet</span></p>
                 <hr>
                 <a href="tel:116117" class="bereitschaft-btn">📞 Anrufen: 116 117</a>
-                <a href="tel:112" class="emergency-btn">🚨 Notruf: 112
+                <a href="tel:112" class="emergency-btn">🚨 Notruf: 112</a>
+            </div>
+        """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("💡 Gib oben deine PLZ ein, um die Praxis anzuzeigen.")
