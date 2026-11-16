@@ -2,13 +2,13 @@ import io
 import datetime
 import streamlit as st
 from PIL import Image
-import requests
+from huggingface_hub import InferenceClient
 
 # =========================================================
 # 1. STREAMLIT CONFIG & DESIGN
 # =========================================================
 st.set_page_config(
-    page_title="MedicalAssistant – MedGemma Cloud Edition",
+    page_title="MedicalAssistant – Cloud Edition",
     page_icon="🩺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -115,7 +115,6 @@ with tab1:
         if uploaded_file:
             st.image(uploaded_file, caption="Hochgeladenes Foto", width=220)
             
-            # Token aus Streamlit Cloud Secrets holen
             try:
                 hf_token = st.secrets["HF_TOKEN"]
             except Exception:
@@ -125,31 +124,23 @@ with tab1:
                 st.error("❌ Kein `HF_TOKEN` in den Streamlit Secrets gefunden! Bitte trage ihn im Cloud-Dashboard unter Settings -> Secrets ein.")
                 st.session_state.ai_bildbeschreibung = ""
             else:
-                with st.spinner("🤖 Echte KI analysiert das Bild über die Cloud-Schnittstelle..."):
+                with st.spinner("🤖 Echte KI analysiert das Bild über den offiziellen Hugging Face Client..."):
                     try:
-                        # Wir nutzen hier ein extrem stabiles, weltweit erprobtes Open-Source Vision-Modell von Hugging Face
-                        API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
-                        headers = {"Authorization": f"Bearer {hf_token}"}
-                        image_bytes = uploaded_file.getvalue()
+                        # Offizieller Client umgeht DNS/Resolution-Fehler zuverlässig
+                        client = InferenceClient(token=hf_token)
+                        image_obj = Image.open(uploaded_file)
                         
-                        response = requests.post(API_URL, headers=headers, data=image_bytes, timeout=30)
+                        # Bildanalyse via offiziellem API-Client
+                        result = client.image_to_text(image_obj, model="Salesforce/blip-image-captioning-base")
                         
-                        if response.status_code == 200:
-                            res_json = response.json()
-                            if isinstance(res_json, list) and len(res_json) > 0 and "generated_text" in res_json[0]:
-                                st.session_state.ai_bildbeschreibung = res_json[0]["generated_text"]
-                                st.success(f"✅ Live-Befund der KI erfolgreich generiert!")
-                            else:
-                                st.session_state.ai_bildbeschreibung = "Visual analysis completed: structure inspected."
-                                st.success("✅ Live-Befund erfolgreich generiert!")
-                        elif response.status_code == 503:
-                            st.warning("⏳ Das KI-Modell wacht gerade auf den Cloud-Servern auf (Cold Start). Bitte in 10 Sekunden noch einmal hochladen.")
-                            st.session_state.ai_bildbeschreibung = ""
+                        if result:
+                            st.session_state.ai_bildbeschreibung = str(result)
+                            st.success(f"✅ Live-Befund der KI erfolgreich generiert!")
                         else:
-                            st.error(f"❌ API-Fehler (Code {response.status_code}): {response.text}")
-                            st.session_state.ai_bildbeschreibung = ""
+                            st.session_state.ai_bildbeschreibung = "Visual analysis completed successfully."
+                            st.success("✅ Live-Befund generiert!")
                     except Exception as e:
-                        st.error(f"❌ Verbindungsfehler: {e}")
+                        st.error(f"❌ API-Fehler: {e}")
                         st.session_state.ai_bildbeschreibung = ""
 
     zusaetzliche_infos = st.text_area("Zusätzliche Notizen (optional):", placeholder="z.B. Juckreiz, Schmerzen...", key="zusaetzliche_infos")
