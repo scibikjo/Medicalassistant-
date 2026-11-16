@@ -1,6 +1,7 @@
 import io
 import re
 import html
+import urllib.parse
 import numpy as np
 import streamlit as st
 from PIL import Image, ImageFilter, ImageOps
@@ -118,6 +119,62 @@ AUFFAELLIG_KEYWORDS = [
 ]
 NEGATIONEN = ("kein", "keine", "keinen", "keiner", "ohne", "nicht", "nie ")
 
+# ---------------------------------------------------------
+# Notdienst-Daten (nur recherchierte, belegte Einträge!)
+# Stand: 16.11.2026. Öffnungszeiten ändern sich täglich/feiertags und werden
+# deshalb NICHT als "geöffnet/geschlossen" behauptet, sondern per 116 117 bestätigt.
+# Weitere Regionen: Eintrag unten ergänzen (name, plz-Bereiche, praxen, quelle, info_link).
+# ---------------------------------------------------------
+BEREITSCHAFT_NUMMER = "116117"
+REGIONEN = [
+    {
+        "name": "Lübeck",
+        "plz": [(23552, 23570)],
+        "praxen": [
+            {
+                "name": "Allgemeinärztliche Anlaufpraxis Lübeck (UKSH Zentralklinikum)",
+                "strasse": "Ratzeburger Allee 160",
+                "ort": "23562 Lübeck",
+            },
+        ],
+        "quelle": "news.de – Notdienst-Übersicht Lübeck",
+        "info_link": "https://www.116117.de",
+    },
+    {
+        "name": "München",
+        "plz": [(80331, 81929)],
+        "praxen": [
+            {"name": "Bereitschaftspraxis im Klinikum Schwabing", "strasse": "Kölner Platz 1", "ort": "80804 München"},
+            {"name": "Bereitschaftspraxis Elisenhof", "strasse": "Prielmayerstr. 3", "ort": "80335 München"},
+            {"name": "Ärztliche Bereitschaftspraxis der KVB München Süd", "strasse": "Boschetsrieder Str. 72 (2. Stock)", "ort": "81379 München"},
+            {"name": "Bereitschaftspraxis München Süd-Ost (Klinikum Neuperlach)", "strasse": "Oskar-Maria-Graf-Ring 51", "ort": "81737 München"},
+        ],
+        "quelle": "muenchen.de – Medizinische Notdienste",
+        "info_link": "https://www.muenchen.de/leben/service/notdienste/medizinisch.html",
+    },
+    {
+        "name": "Köln",
+        "plz": [(50667, 51149)],
+        "praxen": [],
+        "quelle": "stadt-koeln.de – Ärztliche Notfalldienste",
+        "info_link": "https://patienten.kvno.de/service/notdienst",
+    },
+    {
+        "name": "Berlin",
+        "plz": [(10115, 14199)],
+        "praxen": [],
+        "quelle": "KV Berlin",
+        "info_link": "https://www.kvberlin.de/fuer-patienten/aerztlicher-bereitschaftsdienst-116117/kv-notdienstpraxen",
+    },
+    {
+        "name": "Hamburg",
+        "plz": [(20095, 21149), (22041, 22769)],
+        "praxen": [],
+        "quelle": "KV Hamburg",
+        "info_link": "https://www.kvhh.net",
+    },
+]
+
 # =========================================================
 # 3. HILFSFUNKTIONEN
 # =========================================================
@@ -138,6 +195,40 @@ def hat_keyword(text: str, keyword: str) -> bool:
 
 def finde_keywords(text: str, keywords) -> list:
     return [kw for kw in keywords if hat_keyword(text, kw)]
+
+
+def finde_region(plz: str):
+    """Liefert den Regionseintrag zur PLZ oder None."""
+    if not (plz.isdigit() and len(plz) == 5):
+        return None
+    zahl = int(plz)
+    for region in REGIONEN:
+        if any(lo <= zahl <= hi for lo, hi in region["plz"]):
+            return region
+    return None
+
+
+def render_praxis(praxis: dict) -> None:
+    adresse = f"{praxis['strasse']}, {praxis['ort']}"
+    karte = "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote_plus(adresse)
+    st.markdown(
+        f"""
+        <div class="card">
+            <h4 style="margin-top:0;">🏥 {esc(praxis['name'])}</h4>
+            <p><b>Adresse:</b> {esc(adresse)}</p>
+            <p><b>Öffnungsstatus:</b>
+               <span style="background:#fef3c7; color:#92400e; padding:2px 10px; border-radius:8px; font-weight:600;">
+               tagesaktuell unter 116 117 bestätigen</span><br>
+               <span style="font-size:0.85rem; color:#475569;">Anlaufpraxen haben wechselnde Zeiten (Wochentag, Feiertag).
+               Die Telefonnummer vermittelt auch eine andere offene Praxis.</span></p>
+            <hr>
+            <a href="tel:{BEREITSCHAFT_NUMMER}" class="bereitschaft-btn">📞 116 117 anrufen</a>
+            <a href="{esc(karte)}" target="_blank" class="bereitschaft-btn" style="background-color:#0f766e;">🧭 Route öffnen</a>
+            <a href="tel:112" class="emergency-btn">🚨 112 Notruf</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def rgb_zu_lab(arr: np.ndarray) -> np.ndarray:
@@ -363,6 +454,20 @@ def berechne_triage(eingaben: dict) -> dict:
         # Unsicherer Bildbefund darf nicht zu einer grünen Entwarnung führen
         stufe = 1
         gruende.append("Bildbefund nicht eindeutig beurteilbar – vorsorglich ärztliche Einschätzung empfohlen.")
+
+    # Foto im Auto-Modus ohne eindeutigen Befund darf bei Verletzungen nie "grün" ergeben
+    if (
+        modus == MODUS_AUTO
+        and eingaben["bild_bytes"] is not None
+        and not bild_auffaellig
+        and (kategorie in KATEGORIEN_VERLETZUNG or kategorie == "Sonstiges / Allgemeine Beschwerden")
+        and stufe == 0
+    ):
+        stufe = 1
+        gruende.append(
+            "Foto zu einer möglichen Verletzung ohne eindeutigen automatischen Befund – "
+            "vorsorglich ärztliche Einschätzung empfohlen."
+        )
 
     if stufe == 0:
         gruende.append("Keine Alarmsignale in Angaben oder Bildbefund.")
